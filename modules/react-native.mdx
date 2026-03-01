@@ -1,0 +1,116 @@
+---
+title: React Native Module
+description: React Native platform dependencies and utilities for Credo
+---
+
+# React Native Module
+
+The `@credo-ts/react-native` package provides React Native-specific dependencies and utilities for running Credo agents in React Native applications.
+
+## Installation
+
+<CodeGroup>
+```bash npm
+npm install @credo-ts/react-native react-native-fs react-native-get-random-values
+```
+
+```bash yarn
+yarn add @credo-ts/react-native react-native-fs react-native-get-random-values
+```
+
+```bash pnpm
+pnpm add @credo-ts/react-native react-native-fs react-native-get-random-values
+```
+</CodeGroup>
+
+<Note>Requires React Native version 0.71.4 or higher.</Note>
+
+## Peer Dependencies
+
+The following peer dependencies are required:
+
+- `react-native` (version 0.71.4 or higher)
+- `react-native-fs` (version 2.20.0)
+- `react-native-get-random-values` (version 1.11.0 to 2.x)
+
+Optional:
+- `@animo-id/expo-secure-environment` (^0.1.1) - For Expo secure storage
+- `expo-crypto` (^15.0.7) - For Expo crypto operations
+
+## Setup
+
+Import the polyfill at the top of your entry file:
+
+```typescript
+import 'react-native-get-random-values'
+import { Agent } from '@credo-ts/core'
+import { agentDependencies } from '@credo-ts/react-native'
+import { AskarModule } from '@credo-ts/askar'
+import { ariesAskar } from '@hyperledger/askar-react-native'
+
+const agent = new Agent({
+  config: {
+    label: 'My React Native Agent',
+    walletConfig: {
+      id: 'wallet-id',
+      key: 'wallet-key',
+    },
+  },
+  dependencies: agentDependencies,
+  modules: {
+    askar: new AskarModule({ ariesAskar }),
+  },
+})
+
+await agent.initialize()
+```
+
+## What It Provides
+
+The React Native module exports:
+
+- **agentDependencies** - Platform-specific dependencies for React Native
+- **ReactNativeFileSystem** - File system implementation using react-native-fs
+
+## Platform Considerations
+
+### Storage
+
+React Native requires the `@hyperledger/askar-react-native` package instead of the Node.js version:
+
+```typescript
+import { ariesAskar } from '@hyperledger/askar-react-native'
+```
+
+### Networking
+
+For DIDComm connections, configure appropriate transports for mobile environments:
+
+```typescript
+import { DidCommHttpOutboundTransport } from '@credo-ts/core'
+
+// Only outbound transport needed for mobile wallets
+agent.registerOutboundTransport(new DidCommHttpOutboundTransport())
+```
+
+### Secure Storage
+
+For production apps, consider using secure storage:
+
+```typescript
+import { ExpoSecureEnvironmentModule } from '@animo-id/expo-secure-environment'
+
+const agent = new Agent({
+  // ... other config
+  modules: {
+    secureEnvironment: new ExpoSecureEnvironmentModule(),
+    // ... other modules
+  },
+})
+```
+
+## See Also
+
+- [Node Module](/modules/node) - Node.js platform support
+- [Platform Setup Guide](/guides/platform-setup) - Platform-specific configuration
+- [Askar Module](/modules/askar) - Storage and key management

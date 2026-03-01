@@ -1,0 +1,134 @@
+---
+title: Question Answer Module
+description: DIDComm question-answer protocol support
+---
+
+# Question Answer Module
+
+The `@credo-ts/question-answer` package implements the DIDComm Question Answer Protocol, enabling agents to ask and respond to questions.
+
+## Installation
+
+<CodeGroup>
+```bash npm
+npm install @credo-ts/question-answer
+```
+
+```bash yarn
+yarn add @credo-ts/question-answer
+```
+
+```bash pnpm
+pnpm add @credo-ts/question-answer
+```
+</CodeGroup>
+
+## Registration
+
+```typescript
+import { Agent } from '@credo-ts/core'
+import { QuestionAnswerModule } from '@credo-ts/question-answer'
+
+const agent = new Agent({
+  // ... config
+  modules: {
+    questionAnswer: new QuestionAnswerModule(),
+  },
+})
+```
+
+## What It Provides
+
+The Question Answer module enables:
+
+- Send questions to connected agents
+- Receive and respond to questions
+- Multiple choice questions with predefined responses
+- Free-form text responses
+
+## Usage
+
+### Sending a Question
+
+```typescript
+const { questionAnswerRecord } = await agent.modules.questionAnswer.sendQuestion({
+  connectionId: connection.id,
+  question: {
+    questionText: 'Would you like to proceed?',
+    validResponses: [
+      { text: 'Yes' },
+      { text: 'No' },
+    ],
+  },
+})
+```
+
+### Receiving Questions
+
+```typescript
+import { QuestionAnswerEventTypes, QuestionAnswerRole } from '@credo-ts/question-answer'
+
+agent.events.on(QuestionAnswerEventTypes.QuestionAnswerStateChanged, async (event) => {
+  const record = event.payload.questionAnswerRecord
+  
+  if (record.role === QuestionAnswerRole.Responder && record.state === QuestionAnswerState.QuestionReceived) {
+    console.log('Question received:', record.questionText)
+    console.log('Valid responses:', record.validResponses)
+    
+    // Send answer
+    await agent.modules.questionAnswer.sendAnswer({
+      questionAnswerRecordId: record.id,
+      response: 'Yes',
+    })
+  }
+})
+```
+
+### Receiving Answers
+
+```typescript
+agent.events.on(QuestionAnswerEventTypes.QuestionAnswerStateChanged, async (event) => {
+  const record = event.payload.questionAnswerRecord
+  
+  if (record.role === QuestionAnswerRole.Questioner && record.state === QuestionAnswerState.AnswerReceived) {
+    console.log('Answer received:', record.response)
+  }
+})
+```
+
+## Use Cases
+
+- **Consent Requests** - Ask for user consent before actions
+- **Verification Checks** - Confirm user identity or attributes
+- **Service Selection** - Simple yes/no or multiple choice questions
+- **Feedback Collection** - Gather user feedback
+
+## Question Types
+
+### Multiple Choice
+
+```typescript
+question: {
+  questionText: 'Select your preferred method',
+  validResponses: [
+    { text: 'Email' },
+    { text: 'SMS' },
+    { text: 'Push Notification' },
+  ],
+}
+```
+
+### Free-Form Text
+
+```typescript
+question: {
+  questionText: 'Please provide additional details',
+  validResponses: [], // Empty array allows any response
+}
+```
+
+## See Also
+
+- [Action Menu Module](/modules/action-menu) - Interactive menu protocol
+- [DIDComm Module](/modules/didcomm) - DIDComm protocol support
+- [DIDComm Guide](/guides/didcomm) - DIDComm usage guide

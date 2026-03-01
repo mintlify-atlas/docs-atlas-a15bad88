@@ -1,0 +1,136 @@
+---
+title: DRPC Module
+description: Distributed RPC for agent-to-agent communication
+---
+
+# DRPC Module
+
+The `@credo-ts/drpc` package provides Distributed Remote Procedure Call (DRPC) functionality for secure agent-to-agent communication.
+
+## Installation
+
+<CodeGroup>
+```bash npm
+npm install @credo-ts/drpc
+```
+
+```bash yarn
+yarn add @credo-ts/drpc
+```
+
+```bash pnpm
+pnpm add @credo-ts/drpc
+```
+</CodeGroup>
+
+## Registration
+
+```typescript
+import { Agent } from '@credo-ts/core'
+import { DrpcModule } from '@credo-ts/drpc'
+
+const agent = new Agent({
+  // ... config
+  modules: {
+    drpc: new DrpcModule(),
+  },
+})
+```
+
+## What It Provides
+
+The DRPC module enables:
+
+- Remote procedure calls between connected agents
+- Request-response patterns over DIDComm
+- Type-safe RPC definitions
+- Async/await style communication
+
+## Usage
+
+### Defining RPC Methods
+
+```typescript
+interface MyRpcMethods {
+  getUserInfo: (userId: string) => Promise<UserInfo>
+  updateSettings: (settings: Settings) => Promise<void>
+}
+```
+
+### Calling Remote Methods
+
+```typescript
+const result = await agent.modules.drpc.request<MyRpcMethods>({
+  connectionId: connection.id,
+  method: 'getUserInfo',
+  params: ['user-123'],
+})
+
+console.log('User info:', result)
+```
+
+### Handling RPC Requests
+
+```typescript
+import { DrpcEventTypes } from '@credo-ts/drpc'
+
+agent.events.on(DrpcEventTypes.DrpcRequest, async (event) => {
+  const { method, params, connectionId } = event.payload
+  
+  let result
+  
+  switch (method) {
+    case 'getUserInfo':
+      result = await getUserInfo(params[0])
+      break
+    case 'updateSettings':
+      await updateSettings(params[0])
+      result = { success: true }
+      break
+  }
+  
+  await agent.modules.drpc.respond({
+    connectionId,
+    requestId: event.payload.requestId,
+    result,
+  })
+})
+```
+
+## Use Cases
+
+- **Service Integration** - Connect microservices via DIDComm
+- **Agent Orchestration** - Coordinate multiple agents
+- **Data Synchronization** - Sync data between agents
+- **Distributed Workflows** - Implement multi-agent workflows
+
+## Error Handling
+
+```typescript
+try {
+  const result = await agent.modules.drpc.request({
+    connectionId: connection.id,
+    method: 'riskyOperation',
+    params: [],
+  })
+} catch (error) {
+  if (error.code === 'METHOD_NOT_FOUND') {
+    console.error('Remote method not found')
+  } else if (error.code === 'EXECUTION_ERROR') {
+    console.error('Remote execution failed:', error.message)
+  }
+}
+```
+
+## Security Considerations
+
+- All RPC calls are authenticated via DIDComm
+- Requests are encrypted end-to-end
+- Validate input parameters on the server side
+- Implement rate limiting for public endpoints
+- Use timeouts to prevent hanging requests
+
+## See Also
+
+- [DIDComm Module](/modules/didcomm) - DIDComm protocol support
+- [Connections](/api/didcomm) - Connection management

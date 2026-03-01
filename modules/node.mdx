@@ -1,0 +1,98 @@
+---
+title: Node.js Module
+description: Node.js platform dependencies and utilities for Credo
+---
+
+# Node.js Module
+
+The `@credo-ts/node` package provides Node.js-specific dependencies and utilities for running Credo agents on Node.js platforms.
+
+## Installation
+
+<CodeGroup>
+```bash npm
+npm install @credo-ts/node
+```
+
+```bash yarn
+yarn add @credo-ts/node
+```
+
+```bash pnpm
+pnpm add @credo-ts/node
+```
+</CodeGroup>
+
+<Note>Requires Node.js version 20.19 or higher.</Note>
+
+## What It Provides
+
+The Node module exports:
+
+- **agentDependencies** - Platform-specific dependencies for Node.js
+- **DidCommHttpInboundTransport** - HTTP transport for DIDComm messages
+- **DidCommWsInboundTransport** - WebSocket transport for DIDComm messages
+- **NodeFileSystem** - File system implementation for Node.js
+- **NodeKeyManagementService** - Key management for Node.js
+
+## Usage
+
+```typescript
+import { Agent } from '@credo-ts/core'
+import { agentDependencies } from '@credo-ts/node'
+import { AskarModule } from '@credo-ts/askar'
+import { ariesAskar } from '@hyperledger/aries-askar-nodejs'
+
+const agent = new Agent({
+  config: {
+    label: 'My Node Agent',
+    walletConfig: {
+      id: 'wallet-id',
+      key: 'wallet-key',
+    },
+  },
+  dependencies: agentDependencies,
+  modules: {
+    askar: new AskarModule({ ariesAskar }),
+  },
+})
+
+await agent.initialize()
+```
+
+## Transport Configuration
+
+For DIDComm-based applications, you can configure HTTP and WebSocket transports:
+
+```typescript
+import { DidCommHttpInboundTransport, DidCommWsInboundTransport } from '@credo-ts/node'
+
+// Register HTTP transport
+agent.registerInboundTransport(
+  new DidCommHttpInboundTransport({
+    port: 3000,
+  })
+)
+
+// Register WebSocket transport
+agent.registerInboundTransport(
+  new DidCommWsInboundTransport({
+    port: 3001,
+  })
+)
+```
+
+## Platform Dependencies
+
+The `agentDependencies` object includes:
+
+- **FileSystem**: Node.js file system implementation
+- **fetch**: Native fetch API
+- **EventEmitterClass**: Node.js EventEmitter
+- **WebSocketClass**: ws library WebSocket implementation
+
+## See Also
+
+- [React Native Module](/modules/react-native) - React Native platform support
+- [Platform Setup Guide](/guides/platform-setup) - Platform-specific configuration
+- [Agent Configuration](/guides/agent-config) - General agent configuration

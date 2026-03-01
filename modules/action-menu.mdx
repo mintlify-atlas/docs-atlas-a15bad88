@@ -1,0 +1,121 @@
+---
+title: Action Menu Module
+description: DIDComm action menu protocol support
+---
+
+# Action Menu Module
+
+The `@credo-ts/action-menu` package implements the DIDComm Action Menu Protocol, allowing agents to present interactive menus to users.
+
+## Installation
+
+<CodeGroup>
+```bash npm
+npm install @credo-ts/action-menu
+```
+
+```bash yarn
+yarn add @credo-ts/action-menu
+```
+
+```bash pnpm
+pnpm add @credo-ts/action-menu
+```
+</CodeGroup>
+
+## Registration
+
+```typescript
+import { Agent } from '@credo-ts/core'
+import { ActionMenuModule } from '@credo-ts/action-menu'
+
+const agent = new Agent({
+  // ... config
+  modules: {
+    actionMenu: new ActionMenuModule(),
+  },
+})
+```
+
+## What It Provides
+
+The Action Menu module enables:
+
+- Present interactive menus to connected agents
+- Receive menu selections from users
+- Dynamic menu options based on context
+- Multi-step workflows via nested menus
+
+## Usage
+
+### Sending a Menu
+
+```typescript
+const { menu } = await agent.modules.actionMenu.sendMenu({
+  connectionId: connection.id,
+  menu: {
+    title: 'Main Menu',
+    description: 'Please select an option',
+    options: [
+      {
+        name: 'option-1',
+        title: 'Request Credential',
+        description: 'Request a new credential',
+      },
+      {
+        name: 'option-2',
+        title: 'View Profile',
+        description: 'View your profile information',
+      },
+    ],
+  },
+})
+```
+
+### Receiving Menu Selections
+
+```typescript
+import { ActionMenuEventTypes } from '@credo-ts/action-menu'
+
+agent.events.on(ActionMenuEventTypes.ActionMenuStateChanged, async (event) => {
+  if (event.payload.actionMenuRecord.state === ActionMenuState.Done) {
+    const selection = event.payload.actionMenuRecord.selection
+    console.log('User selected:', selection)
+    
+    // Handle the selection
+    if (selection === 'option-1') {
+      // Initiate credential issuance
+    }
+  }
+})
+```
+
+## Use Cases
+
+- **Credential Issuance** - Present options for different credential types
+- **Service Selection** - Allow users to choose from available services
+- **Workflow Navigation** - Guide users through multi-step processes
+- **Settings Management** - Provide menu-based settings configuration
+
+## Menu Structure
+
+```typescript
+interface ActionMenu {
+  title: string
+  description?: string
+  options: ActionMenuOption[]
+}
+
+interface ActionMenuOption {
+  name: string
+  title: string
+  description?: string
+  disabled?: boolean
+}
+```
+
+## See Also
+
+- [Question Answer Module](/modules/question-answer) - Simple question-answer protocol
+- [DIDComm Module](/modules/didcomm) - DIDComm protocol support
+- [DIDComm Guide](/guides/didcomm) - DIDComm usage guide

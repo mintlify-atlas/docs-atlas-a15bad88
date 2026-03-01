@@ -1,0 +1,145 @@
+---
+title: Drizzle Storage Module
+description: SQL-based storage implementation using Drizzle ORM
+---
+
+# Drizzle Storage Module
+
+The `@credo-ts/drizzle-storage` package provides a SQL-based storage implementation using Drizzle ORM, supporting both PostgreSQL and SQLite.
+
+## Installation
+
+<CodeGroup>
+```bash npm
+npm install @credo-ts/drizzle-storage drizzle-orm
+```
+
+```bash yarn
+yarn add @credo-ts/drizzle-storage drizzle-orm
+```
+
+```bash pnpm
+pnpm add @credo-ts/drizzle-storage drizzle-orm
+```
+</CodeGroup>
+
+## Database Drivers
+
+Install the appropriate database driver:
+
+<Tabs>
+  <Tab title="PostgreSQL">
+```bash
+npm install pg
+```
+  </Tab>
+  <Tab title="SQLite">
+```bash
+npm install better-sqlite3
+# or for libSQL
+npm install @libsql/client
+```
+  </Tab>
+</Tabs>
+
+## Configuration
+
+### PostgreSQL
+
+```typescript
+import { Agent } from '@credo-ts/core'
+import { DrizzleStorageModule } from '@credo-ts/drizzle-storage'
+import { drizzle } from 'drizzle-orm/node-postgres'
+import { Pool } from 'pg'
+
+const pool = new Pool({
+  connectionString: 'postgresql://user:password@localhost:5432/database',
+})
+
+const db = drizzle({ client: pool })
+
+const agent = new Agent({
+  config: {
+    label: 'My Agent',
+    walletConfig: {
+      id: 'wallet-id',
+      key: 'wallet-key',
+    },
+  },
+  dependencies: agentDependencies,
+  modules: {
+    drizzleStorage: new DrizzleStorageModule({
+      db,
+      bundles: ['core', 'didcomm', 'anoncreds'],
+    }),
+  },
+})
+
+await agent.initialize()
+```
+
+### SQLite
+
+```typescript
+import { drizzle } from 'drizzle-orm/better-sqlite3'
+import Database from 'better-sqlite3'
+
+const sqlite = new Database('agent.db')
+const db = drizzle({ client: sqlite })
+
+const agent = new Agent({
+  // ... config
+  modules: {
+    drizzleStorage: new DrizzleStorageModule({
+      db,
+      bundles: ['core', 'didcomm'],
+    }),
+  },
+})
+```
+
+## Bundles
+
+The module supports bundles for different Credo modules:
+
+- `core` - Core storage (required)
+- `didcomm` - DIDComm protocol storage
+- `anoncreds` - AnonCreds storage
+- `openid4vc` - OpenID4VC storage
+- `tenants` - Multi-tenancy storage
+- `action-menu` - Action menu protocol storage
+- `question-answer` - Question-answer protocol storage
+- `drpc` - DRPC storage
+
+## Migrations
+
+Run migrations using the Drizzle CLI:
+
+```bash
+# Generate migration files
+npx drizzle-kit generate
+
+# Run migrations
+npx drizzle-kit migrate --dialect postgres --database-url "postgresql://..."
+```
+
+## Advantages Over Askar
+
+- **SQL Database** - Use existing PostgreSQL/SQLite infrastructure
+- **Query Flexibility** - Full SQL query capabilities
+- **Debugging** - Standard SQL tools for inspection
+- **Integration** - Share database with other services
+- **Migrations** - Schema versioning with Drizzle migrations
+
+## Performance Considerations
+
+- Use connection pooling for PostgreSQL
+- Configure appropriate indexes for your query patterns
+- Consider read replicas for high-traffic applications
+- Use prepared statements (handled automatically by Drizzle)
+
+## See Also
+
+- [Askar Module](/modules/askar) - Alternative secure storage backend
+- [Storage Concepts](/concepts/storage) - Storage architecture overview
+- [Storage Migration](/advanced/storage-migration) - Migrating between storage backends

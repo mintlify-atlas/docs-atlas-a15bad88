@@ -62,9 +62,17 @@
               "modules/didcomm",
               "modules/tenants",
               "modules/askar",
+              "modules/drizzle-storage",
               "modules/indy-vdr",
               "modules/cheqd",
-              "modules/hedera"
+              "modules/hedera",
+              "modules/node",
+              "modules/react-native",
+              "modules/redis-cache",
+              "modules/action-menu",
+              "modules/question-answer",
+              "modules/drpc",
+              "modules/webvh"
             ]
           },
           {

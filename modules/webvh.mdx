@@ -1,0 +1,133 @@
+---
+title: WebVH Module
+description: did:webvh DID method support for Credo
+---
+
+# WebVH Module
+
+The `@credo-ts/webvh` package provides support for the `did:webvh` (Web Verifiable History) DID method, which extends `did:web` with cryptographic verification and version history.
+
+## Installation
+
+<CodeGroup>
+```bash npm
+npm install @credo-ts/webvh
+```
+
+```bash yarn
+yarn add @credo-ts/webvh
+```
+
+```bash pnpm
+pnpm add @credo-ts/webvh
+```
+</CodeGroup>
+
+## Registration
+
+```typescript
+import { Agent } from '@credo-ts/core'
+import { WebVhModule } from '@credo-ts/webvh'
+
+const agent = new Agent({
+  // ... config
+  modules: {
+    webvh: new WebVhModule(),
+  },
+})
+```
+
+## What is did:webvh?
+
+The `did:webvh` method improves upon `did:web` by adding:
+
+- **Verifiable History** - Cryptographic proof of DID document changes
+- **Version Control** - Track all updates to the DID document
+- **Tamper Detection** - Detect unauthorized modifications
+- **Auditable** - Full audit trail of all changes
+
+while maintaining compatibility with standard web infrastructure.
+
+## Creating a did:webvh DID
+
+```typescript
+const didResult = await agent.dids.create({
+  method: 'webvh',
+  options: {
+    domain: 'example.com',
+    path: 'optional/path',
+  },
+})
+
+console.log('Created DID:', didResult.didState.did)
+// Example: did:webvh:example.com:optional:path
+```
+
+## Resolving did:webvh DIDs
+
+```typescript
+const didResult = await agent.dids.resolve('did:webvh:example.com')
+
+if (didResult.didDocument) {
+  console.log('DID Document:', didResult.didDocument)
+  console.log('Version:', didResult.didDocumentMetadata.versionId)
+  console.log('Updated:', didResult.didDocumentMetadata.updated)
+}
+```
+
+## Updating a DID Document
+
+```typescript
+await agent.dids.update({
+  did: 'did:webvh:example.com',
+  didDocument: updatedDocument,
+  options: {
+    // Update options
+  },
+})
+```
+
+## Verifying History
+
+The module automatically verifies the cryptographic history when resolving:
+
+```typescript
+const result = await agent.dids.resolve('did:webvh:example.com')
+
+if (result.didResolutionMetadata.error) {
+  console.error('History verification failed:', result.didResolutionMetadata.error)
+} else {
+  console.log('History verified successfully')
+}
+```
+
+## Advantages Over did:web
+
+- **Security** - Cryptographic verification prevents tampering
+- **Auditability** - Full history of all changes
+- **Trust** - Detect if DID has been compromised
+- **Compliance** - Audit trail for regulatory requirements
+
+## Comparison
+
+| Feature | did:web | did:webvh |
+|---------|---------|----------|
+| Web hosting | ✓ | ✓ |
+| HTTPS required | ✓ | ✓ |
+| Version history | ✗ | ✓ |
+| Tamper detection | ✗ | ✓ |
+| Cryptographic proof | ✗ | ✓ |
+| Backward compatible | N/A | With did:web infrastructure |
+
+## Use Cases
+
+- **Enterprise DIDs** - Organizations needing audit trails
+- **Regulated Industries** - Compliance requirements
+- **High Security** - Critical identity infrastructure
+- **Long-lived DIDs** - DIDs that need historical verification
+
+## See Also
+
+- [DID Methods](/concepts/did-methods) - Overview of supported DID methods
+- [DIDs API](/api/dids) - DID operations API
+- [did:web specification](https://w3c-ccg.github.io/did-method-web/)

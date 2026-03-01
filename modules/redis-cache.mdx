@@ -1,0 +1,140 @@
+---
+title: Redis Cache Module
+description: Redis-based caching for improved agent performance
+---
+
+# Redis Cache Module
+
+The `@credo-ts/redis-cache` package provides Redis-based caching to improve agent performance by reducing database queries.
+
+## Installation
+
+<CodeGroup>
+```bash npm
+npm install @credo-ts/redis-cache
+```
+
+```bash yarn
+yarn add @credo-ts/redis-cache
+```
+
+```bash pnpm
+pnpm add @credo-ts/redis-cache
+```
+</CodeGroup>
+
+## Configuration
+
+```typescript
+import { Agent } from '@credo-ts/core'
+import { RedisCacheModule } from '@credo-ts/redis-cache'
+import Redis from 'ioredis'
+
+const redis = new Redis({
+  host: 'localhost',
+  port: 6379,
+  // Optional: configure password, TLS, etc.
+})
+
+const agent = new Agent({
+  config: {
+    label: 'My Agent',
+    walletConfig: {
+      id: 'wallet-id',
+      key: 'wallet-key',
+    },
+  },
+  dependencies: agentDependencies,
+  modules: {
+    cache: new RedisCacheModule({
+      redis,
+      ttl: 3600, // Time-to-live in seconds (default: 1 hour)
+    }),
+  },
+})
+
+await agent.initialize()
+```
+
+## Use Cases
+
+### DID Resolution Caching
+
+Cache resolved DIDs to avoid repeated resolution:
+
+```typescript
+const didResult = await agent.dids.resolve('did:web:example.com')
+// Subsequent resolutions will use cached result
+```
+
+### Credential Schema Caching
+
+Cache AnonCreds schemas and credential definitions:
+
+```typescript
+const schema = await agent.modules.anoncreds.getSchema(schemaId)
+// Cached for subsequent lookups
+```
+
+### Connection State
+
+Cache frequently accessed connection records to reduce database load.
+
+## Configuration Options
+
+- **redis** - ioredis client instance (required)
+- **ttl** - Default time-to-live in seconds (default: 3600)
+- **prefix** - Redis key prefix (default: 'credo')
+
+## Cache Invalidation
+
+The cache automatically invalidates entries when:
+
+- TTL expires
+- Records are updated
+- Agent is shut down
+
+## Redis Setup
+
+### Development
+
+```bash
+# Using Docker
+docker run -d -p 6379:6379 redis:alpine
+```
+
+### Production
+
+Consider:
+
+- **Redis Cluster** - For high availability
+- **Redis Sentinel** - For automatic failover
+- **Persistence** - Configure RDB or AOF
+- **TLS** - Enable encrypted connections
+- **Authentication** - Set strong passwords
+
+## Performance Benefits
+
+- Reduced database queries for frequently accessed data
+- Faster DID resolution (especially for remote DIDs)
+- Lower latency for credential operations
+- Improved scalability under load
+
+## Monitoring
+
+```typescript
+// Monitor cache hits/misses
+redis.on('ready', () => {
+  console.log('Redis cache connected')
+})
+
+redis.on('error', (err) => {
+  console.error('Redis cache error:', err)
+})
+```
+
+## See Also
+
+- [Cache Module](/api/cache) - Cache API reference
+- [Storage](/concepts/storage) - Storage architecture
+- [Agent Configuration](/guides/agent-config) - General agent configuration

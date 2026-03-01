@@ -1,0 +1,289 @@
+---
+title: Agent
+description: Understanding Credo's agent architecture and lifecycle
+---
+
+The Agent is the central component in Credo that manages all functionality and orchestrates different modules. It provides a unified interface for working with DIDs, credentials, connections, and other decentralized identity operations.
+
+## Agent Architecture
+
+Credo's agent architecture is built on three core classes:
+
+### Agent Class
+
+The `Agent` class is the main entry point for applications. It extends `BaseAgent` and handles initialization, configuration, and lifecycle management.
+
+```typescript
+import { Agent } from '@credo-ts/core'
+import { agentDependencies } from '@credo-ts/node'
+
+const agent = new Agent({
+  config: {
+    logger: new ConsoleLogger(LogLevel.info),
+    autoUpdateStorageOnStartup: false,
+  },
+  modules: {
+    // Custom modules
+  },
+  dependencies: agentDependencies,
+})
+```
+
+<Note>
+The `Agent` class requires platform-specific dependencies (`agentDependencies`) which provide implementations for cryptography, networking, and storage operations.
+</Note>
+
+### BaseAgent Class
+
+The `BaseAgent` is an abstract base class that provides core functionality:
+
+```typescript
+export abstract class BaseAgent<AgentModules extends ModulesMap = EmptyModuleMap> {
+  // Core API surfaces
+  public readonly mdoc: MdocApi
+  public readonly genericRecords: GenericRecordsApi
+  public readonly dids: DidsApi
+  public readonly w3cCredentials: W3cCredentialsApi
+  public readonly w3cV2Credentials: W3cV2CredentialsApi
+  public readonly sdJwtVc: SdJwtVcApi
+  public readonly x509: X509Api
+  public readonly kms: KeyManagementApi
+  
+  // Optional modules
+  public readonly didcomm?: DidCommApi
+  public readonly openid4vc?: OpenId4VcApi
+  
+  // Custom modules
+  public readonly modules: AgentApi<WithoutDefaultModules<AgentModules>>
+}
+```
+
+Source: `packages/core/src/agent/BaseAgent.ts:18`
+
+### AgentConfig Class
+
+The `AgentConfig` class holds the agent's configuration and provides access to important settings:
+
+```typescript
+export class AgentConfig {
+  public logger: Logger
+  public readonly agentDependencies: AgentDependencies
+  
+  public get allowInsecureHttpUrls(): boolean
+  public get autoUpdateStorageOnStartup(): boolean
+  public get validitySkewSeconds(): number
+}
+```
+
+Source: `packages/core/src/agent/AgentConfig.ts:7`
+
+## Configuration Options
+
+### InitConfig Interface
+
+The `InitConfig` interface defines the configuration options for the agent:
+
+```typescript
+export interface InitConfig {
+  logger?: Logger
+  autoUpdateStorageOnStartup?: boolean
+  allowInsecureHttpUrls?: boolean
+  validitySkewSeconds?: number
+}
+```
+
+Source: `packages/core/src/types.ts:4`
+
+<Info>
+**Configuration Options:**
+
+- `logger`: Custom logger implementation (defaults to ConsoleLogger with LogLevel.off)
+- `autoUpdateStorageOnStartup`: Automatically migrate storage when starting the agent (default: false)
+- `allowInsecureHttpUrls`: Allow HTTP URLs in production (use with caution, default: false)
+- `validitySkewSeconds`: Clock skew tolerance for JWT validation in seconds (default: 30)
+</Info>
+
+## Agent Lifecycle
+
+### Initialization
+
+The agent must be initialized before use:
+
+```typescript
+await agent.initialize()
+```
+
+During initialization, the agent:
+
+1. Initializes all registered modules
+2. Initializes the root agent context
+3. Checks storage version and performs migrations if needed
+4. Sets up event listeners and services
+
+Source: `packages/core/src/agent/Agent.ts:75`
+
+<Warning>
+An agent can only be initialized once. Attempting to re-initialize will throw a `CredoError`. If storage is not up to date and `autoUpdateStorageOnStartup` is false, initialization will fail.
+</Warning>
+
+### Shutdown
+
+Properly shut down the agent when done:
+
+```typescript
+await agent.shutdown()
+```
+
+During shutdown, the agent:
+
+1. Emits a stop signal to all observables
+2. Shuts down all registered modules
+3. Closes the agent context
+4. Cleans up resources
+
+Source: `packages/core/src/agent/Agent.ts:113`
+
+## AgentContext
+
+The `AgentContext` provides a scoped context for operations:
+
+```typescript
+export class AgentContext {
+  public readonly dependencyManager: DependencyManager
+  public readonly contextCorrelationId: string
+  public readonly isRootAgentContext: boolean
+  
+  public get config(): AgentConfig
+  public resolve<T>(token: InjectionToken<T>): T
+  public async endSession(): Promise<void>
+}
+```
+
+Source: `packages/core/src/agent/context/AgentContext.ts:6`
+
+### Context Features
+
+- **Dependency Resolution**: Access to all registered services and modules
+- **Context Correlation**: Unique identifier for tracking operations across sessions
+- **Multi-tenancy Support**: Root context vs. tenant-specific contexts
+- **Session Management**: Proper cleanup of resources
+
+## Event System
+
+The agent provides an event emitter for observing operations:
+
+```typescript
+// Subscribe to events
+agent.events.observable(CredentialEventTypes.CredentialStateChanged).subscribe({
+  next: (event) => {
+    console.log('Credential state changed:', event.payload)
+  },
+})
+```
+
+<Info>
+All observables automatically stop when the agent is shut down via the internal `stop$` observable.
+</Info>
+
+## Dependency Injection
+
+Credo uses a dependency injection system to manage services:
+
+```typescript
+// Resolve services from the agent context
+const didRepository = agent.context.resolve(DidRepository)
+const kms = agent.context.resolve(KeyManagementApi)
+```
+
+### Built-in Services
+
+The agent automatically registers:
+
+- `EventEmitter`: Event system
+- `JwsService`: JSON Web Signature operations
+- `StorageVersionRepository`: Storage version tracking
+- `StorageUpdateService`: Storage migration management
+- All configured modules and their services
+
+Source: `packages/core/src/agent/Agent.ts:29`
+
+## Multi-tenancy
+
+Credo supports multi-tenancy through the `TenantModule` (separate package). Each tenant gets its own isolated `AgentContext` with separate storage while sharing the root configuration.
+
+```typescript
+import { TenantsModule } from '@credo-ts/tenants'
+
+const agent = new Agent({
+  config: { /* ... */ },
+  modules: {
+    tenants: new TenantsModule(),
+  },
+  dependencies: agentDependencies,
+})
+
+// Access tenant operations
+const tenantRecord = await agent.modules.tenants.createTenant({
+  config: { label: 'Tenant 1' },
+})
+```
+
+## Best Practices
+
+<Info>
+**Initialization:**
+- Always initialize the agent before performing operations
+- Handle storage migrations appropriately in production
+- Use proper error handling during initialization
+
+**Shutdown:**
+- Always call `shutdown()` when done to clean up resources
+- Ensure all pending operations complete before shutdown
+- Use try-finally blocks to ensure cleanup
+
+**Configuration:**
+- Never use `allowInsecureHttpUrls: true` in production
+- Set appropriate validity skew for your use case
+- Configure logging level based on environment
+</Info>
+
+## Example: Complete Agent Setup
+
+```typescript
+import { Agent, ConsoleLogger, LogLevel } from '@credo-ts/core'
+import { agentDependencies } from '@credo-ts/node'
+import { AskarModule } from '@credo-ts/askar'
+import { ariesAskar } from '@hyperledger/aries-askar-nodejs'
+
+const agent = new Agent({
+  config: {
+    logger: new ConsoleLogger(LogLevel.info),
+    autoUpdateStorageOnStartup: true,
+    validitySkewSeconds: 30,
+  },
+  modules: {
+    askar: new AskarModule({ ariesAskar }),
+  },
+  dependencies: agentDependencies,
+})
+
+try {
+  await agent.initialize()
+  
+  // Perform operations
+  const did = await agent.dids.create({
+    method: 'key',
+    options: { keyType: 'ed25519' },
+  })
+  
+  console.log('Created DID:', did.didState.did)
+} finally {
+  await agent.shutdown()
+}
+```
+
+## Related Topics
+
+- [Modules](/concepts/modules) - Learn about the module system
+- [Storage](/concepts/storage) - Understand storage architecture
+- [DID Methods](/concepts/did-methods) - Supported DID methods

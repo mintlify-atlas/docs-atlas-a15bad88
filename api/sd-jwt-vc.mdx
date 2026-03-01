@@ -1,0 +1,413 @@
+---
+title: 'SdJwtVcApi'
+description: 'SD-JWT Verifiable Credentials with selective disclosure'
+---
+
+## Overview
+
+The SdJwtVcApi provides methods for working with SD-JWT (Selective Disclosure JWT) Verifiable Credentials, enabling privacy-preserving credentials where holders can selectively disclose claims.
+
+```typescript
+const sdJwt = await agent.sdJwtVc.sign({
+  holder: { method: 'did', didUrl: holderDid },
+  payload: {
+    vct: 'https://example.com/credentials/employee',
+    name: 'Alice Smith',
+    email: 'alice@example.com',
+  },
+})
+```
+
+## Methods
+
+### sign()
+
+Create and sign an SD-JWT Verifiable Credential.
+
+```typescript
+const result = await agent.sdJwtVc.sign({
+  holder: {
+    method: 'did',
+    didUrl: holderDid,
+  },
+  issuer: {
+    method: 'did',
+    didUrl: issuerDid,
+  },
+  payload: {
+    vct: 'https://example.com/credentials/identity',
+    given_name: 'Alice',
+    family_name: 'Smith',
+    email: 'alice@example.com',
+    age: 30,
+    address: {
+      street: '123 Main St',
+      city: 'Springfield',
+    },
+  },
+  disclosureFrame: {
+    _sd: ['given_name', 'family_name', 'email', 'age', 'address'],
+  },
+})
+
+const compact = result.compact
+```
+
+<ParamField path="options.holder" type="object" required>
+  Holder binding configuration
+  
+  - `method`: 'did' or 'jwk'
+  - `didUrl`: DID URL for holder (if method is 'did')
+  - `jwk`: JWK for holder (if method is 'jwk')
+</ParamField>
+
+<ParamField path="options.issuer" type="object" optional>
+  Issuer configuration. Defaults to agent's default issuer.
+  
+  - `method`: 'did' or 'x5c'
+  - `didUrl`: DID URL for issuer
+</ParamField>
+
+<ParamField path="options.payload" type="SdJwtVcPayload" required>
+  The credential payload including:
+  
+  - `vct`: Verifiable Credential Type (required)
+  - Additional claims
+</ParamField>
+
+<ParamField path="options.disclosureFrame" type="object" optional>
+  Frame specifying which claims should be selectively disclosable
+</ParamField>
+
+**Returns:** `Promise<{ compact: string, sdJwtVc: SdJwtVc, header: SdJwtVcHeader, payload: SdJwtVcPayload }>`
+
+### present()
+
+Create a presentation with selective disclosure from an SD-JWT VC.
+
+```typescript
+const presentation = await agent.sdJwtVc.present({
+  sdJwtVc: receivedSdJwtVc,
+  disclosureFrame: {
+    given_name: true,
+    family_name: true,
+    age: true,
+    // email and address not disclosed
+  },
+  holderBinding: {
+    method: 'did',
+    didUrl: holderDid,
+    audience: verifierDid,
+    nonce: 'verifier-nonce-123',
+  },
+})
+```
+
+<ParamField path="options.sdJwtVc" type="string | SdJwtVc" required>
+  The SD-JWT VC to present (compact format or parsed object)
+</ParamField>
+
+<ParamField path="options.disclosureFrame" type="object" required>
+  Object specifying which claims to disclose (true = disclose, false = hide)
+</ParamField>
+
+<ParamField path="options.holderBinding" type="object" optional>
+  Holder binding configuration for key binding JWT:
+  
+  - `method`: 'did' or 'jwk'
+  - `didUrl`: Holder DID URL
+  - `audience`: Verifier identifier
+  - `nonce`: Challenge from verifier
+</ParamField>
+
+**Returns:** `Promise<string>` - Presentation in compact format
+
+### verify()
+
+Verify an SD-JWT VC or presentation.
+
+```typescript
+const result = await agent.sdJwtVc.verify({
+  sdJwtVc: presentation,
+  keyBinding: {
+    audience: verifierDid,
+    nonce: 'verifier-nonce-123',
+  },
+  requiredClaimFrame: {
+    given_name: true,
+    age: true,
+  },
+})
+
+if (result.verification.verified) {
+  console.log('Verified!')
+  console.log('Issuer:', result.verification.issuerId)
+  console.log('Holder:', result.verification.holderId)
+  console.log('Payload:', result.payload)
+}
+```
+
+<ParamField path="options.sdJwtVc" type="string" required>
+  SD-JWT VC or presentation in compact format
+</ParamField>
+
+<ParamField path="options.keyBinding" type="object" optional>
+  Expected key binding values:
+  
+  - `audience`: Expected audience
+  - `nonce`: Expected nonce
+</ParamField>
+
+<ParamField path="options.requiredClaimFrame" type="object" optional>
+  Claims that must be disclosed for verification to succeed
+</ParamField>
+
+**Returns:** `Promise<SdJwtVcVerificationResult>`
+
+Result contains:
+- `verification`: Verification result with `verified` boolean, `issuerId`, `holderId`
+- `payload`: Disclosed payload
+- `header`: JWT header
+
+### fromCompact()
+
+Parse an SD-JWT VC from compact format.
+
+```typescript
+const sdJwtVc = agent.sdJwtVc.fromCompact(
+  'eyJhbGc...~WyJz...~eyJhbGc...'
+)
+
+console.log('Header:', sdJwtVc.header)
+console.log('Payload:', sdJwtVc.payload)
+console.log('Disclosures:', sdJwtVc.disclosures)
+```
+
+<ParamField path="sdJwtVcCompact" type="string" required>
+  SD-JWT VC in compact format
+</ParamField>
+
+**Returns:** `SdJwtVc<Header, Payload>`
+
+### fetchTypeMetadata()
+
+Fetch type metadata for the vct (Verifiable Credential Type).
+
+```typescript
+const sdJwtVc = agent.sdJwtVc.fromCompact(compact)
+
+const metadata = await agent.sdJwtVc.fetchTypeMetadata(sdJwtVc, {
+  throwErrorOnFetchError: false,
+})
+
+if (metadata) {
+  console.log('Schema:', metadata.schema)
+  console.log('Rendering:', metadata.rendering)
+}
+```
+
+<ParamField path="sdJwtVc" type="SdJwtVc" required>
+  Parsed SD-JWT VC object
+</ParamField>
+
+<ParamField path="options.throwErrorOnFetchError" type="boolean" optional default="true">
+  Whether to throw error if metadata cannot be fetched
+</ParamField>
+
+<ParamField path="options.throwErrorOnUnsupportedVctValue" type="boolean" optional default="true">
+  Whether to throw error if vct value is not supported
+</ParamField>
+
+**Returns:** `Promise<ResolvedTypeMetadata | undefined>`
+
+### store()
+
+Store an SD-JWT VC in the wallet.
+
+```typescript
+const record = await agent.sdJwtVc.store({
+  sdJwtVc: compact,
+})
+
+console.log('Stored with ID:', record.id)
+```
+
+<ParamField path="options.sdJwtVc" type="string" required>
+  SD-JWT VC in compact format
+</ParamField>
+
+**Returns:** `Promise<SdJwtVcRecord>`
+
+### getById()
+
+Retrieve a stored SD-JWT VC by ID.
+
+```typescript
+const record = await agent.sdJwtVc.getById(recordId)
+console.log('SD-JWT:', record.compactSdJwtVc)
+```
+
+<ParamField path="id" type="string" required>
+  Record ID
+</ParamField>
+
+**Returns:** `Promise<SdJwtVcRecord>`
+
+### getAll()
+
+Retrieve all stored SD-JWT VCs.
+
+```typescript
+const records = await agent.sdJwtVc.getAll()
+console.log(`Found ${records.length} SD-JWT VCs`)
+```
+
+**Returns:** `Promise<SdJwtVcRecord[]>`
+
+### findAllByQuery()
+
+Find SD-JWT VCs by query.
+
+```typescript
+const records = await agent.sdJwtVc.findAllByQuery(
+  { vct: 'https://example.com/credentials/employee' },
+  { limit: 10 }
+)
+```
+
+<ParamField path="query" type="Query<SdJwtVcRecord>" required>
+  Query object
+</ParamField>
+
+<ParamField path="queryOptions" type="QueryOptions" optional>
+  Query options (limit, offset)
+</ParamField>
+
+**Returns:** `Promise<SdJwtVcRecord[]>`
+
+### deleteById()
+
+Delete a stored SD-JWT VC by ID.
+
+```typescript
+await agent.sdJwtVc.deleteById(recordId)
+```
+
+<ParamField path="id" type="string" required>
+  Record ID
+</ParamField>
+
+**Returns:** `Promise<void>`
+
+### update()
+
+Update a stored SD-JWT VC record.
+
+```typescript
+const record = await agent.sdJwtVc.getById(recordId)
+record.metadata.set('custom', 'value')
+
+await agent.sdJwtVc.update(record)
+```
+
+<ParamField path="sdJwtVcRecord" type="SdJwtVcRecord" required>
+  Updated record
+</ParamField>
+
+**Returns:** `Promise<void>`
+
+## Example Usage
+
+```typescript
+import { Agent } from '@credo-ts/core'
+
+// Issuer creates SD-JWT VC
+const { compact } = await agent.sdJwtVc.sign({
+  holder: {
+    method: 'did',
+    didUrl: holderDid,
+  },
+  issuer: {
+    method: 'did',
+    didUrl: issuerDid,
+  },
+  payload: {
+    vct: 'https://example.com/identity',
+    given_name: 'Alice',
+    family_name: 'Smith',
+    email: 'alice@example.com',
+    birthdate: '1990-01-01',
+    address: {
+      street: '123 Main St',
+      city: 'Springfield',
+    },
+  },
+  disclosureFrame: {
+    _sd: ['given_name', 'family_name', 'email', 'birthdate', 'address'],
+  },
+})
+
+// Holder stores credential
+const record = await agent.sdJwtVc.store({ sdJwtVc: compact })
+
+// Holder creates selective disclosure presentation
+const presentation = await agent.sdJwtVc.present({
+  sdJwtVc: compact,
+  disclosureFrame: {
+    given_name: true,  // Disclose
+    family_name: true, // Disclose
+    email: false,      // Hide
+    birthdate: false,  // Hide
+    address: false,    // Hide
+  },
+  holderBinding: {
+    method: 'did',
+    didUrl: holderDid,
+    audience: verifierDid,
+    nonce: verifierNonce,
+  },
+})
+
+// Verifier verifies presentation
+const result = await agent.sdJwtVc.verify({
+  sdJwtVc: presentation,
+  keyBinding: {
+    audience: verifierDid,
+    nonce: verifierNonce,
+  },
+  requiredClaimFrame: {
+    given_name: true,
+    family_name: true,
+  },
+})
+
+if (result.verification.verified) {
+  console.log('Verified! Disclosed claims:', result.payload)
+  // Only given_name and family_name are in result.payload
+}
+```
+
+## Privacy Benefits
+
+SD-JWT VCs enable:
+
+1. **Selective Disclosure**: Holders reveal only necessary claims
+2. **Unlinkability**: Different presentations can't be linked to same credential
+3. **Holder Binding**: Cryptographic proof that presenter is the holder
+4. **Minimal Disclosure**: Satisfy verifier requirements with minimal information
+
+```typescript
+// Only disclose name for account creation
+const accountPresentation = await agent.sdJwtVc.present({
+  sdJwtVc: identityCredential,
+  disclosureFrame: { given_name: true, family_name: true },
+})
+
+// Only disclose age>=18 for age verification
+const agePresentation = await agent.sdJwtVc.present({
+  sdJwtVc: identityCredential,
+  disclosureFrame: { birthdate: true },
+})
+
+// These presentations cannot be correlated
+```

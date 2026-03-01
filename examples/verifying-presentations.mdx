@@ -1,0 +1,423 @@
+---
+title: Verifying Presentations
+description: Complete guide to requesting and verifying credential presentations in Credo
+---
+
+This guide demonstrates how to request and verify credential presentations using both DIDComm and OpenID4VP protocols.
+
+## DIDComm Presentation Verification
+
+The DIDComm approach uses the Present Proof protocol to request and verify credentials.
+
+<Steps>
+
+### Initialize the Verifier Agent
+
+Set up an agent configured for proof verification:
+
+```typescript
+import {
+  Agent,
+  DidsModule,
+} from '@credo-ts/core'
+import {
+  AnonCredsModule,
+  AnonCredsDidCommProofFormatService,
+  DidCommProofV2Protocol,
+} from '@credo-ts/anoncreds'
+import {
+  DidCommModule,
+  DidCommAutoAcceptProof,
+  DidCommHttpOutboundTransport,
+} from '@credo-ts/didcomm'
+import { AskarModule } from '@credo-ts/askar'
+import { IndyVdrModule, IndyVdrAnonCredsRegistry } from '@credo-ts/indy-vdr'
+import { agentDependencies, DidCommHttpInboundTransport } from '@credo-ts/node'
+import { anoncreds } from '@hyperledger/anoncreds-nodejs'
+import { indyVdr } from '@hyperledger/indy-vdr-nodejs'
+import { askar } from '@openwallet-foundation/askar-nodejs'
+
+const verifierAgent = new Agent({
+  config: {
+    label: 'Verifier Agent',
+    walletConfig: {
+      id: 'verifier-wallet',
+      key: 'verifier-wallet-key',
+    },
+  },
+  dependencies: agentDependencies,
+  modules: {
+    didcomm: new DidCommModule({
+      endpoints: ['http://localhost:3002'],
+      transports: {
+        inbound: [new DidCommHttpInboundTransport({ port: 3002 })],
+        outbound: [new DidCommHttpOutboundTransport()],
+      },
+      proofs: {
+        autoAcceptProofs: DidCommAutoAcceptProof.ContentApproved,
+        proofProtocols: [
+          new DidCommProofV2Protocol({
+            proofFormats: [new AnonCredsDidCommProofFormatService()],
+          }),
+        ],
+      },
+    }),
+    anoncreds: new AnonCredsModule({
+      registries: [new IndyVdrAnonCredsRegistry()],
+      anoncreds,
+    }),
+    indyVdr: new IndyVdrModule({
+      indyVdr,
+      networks: [
+        {
+          genesisTransactions: '<genesis-transactions>',
+          indyNamespace: 'bcovrin:test',
+          isProduction: false,
+          connectOnStartup: true,
+        },
+      ],
+    }),
+    dids: new DidsModule({
+      resolvers: [],
+      registrars: [],
+    }),
+    askar: new AskarModule({
+      askar,
+    }),
+  },
+})
+
+await verifierAgent.initialize()
+```
+
+### Request a Proof
+
+Request specific attributes from the holder's credentials:
+
+```typescript
+// First, establish a connection with the holder
+const outOfBand = await verifierAgent.didcomm.oob.createInvitation()
+const invitationUrl = outOfBand.outOfBandInvitation.toUrl({
+  domain: 'http://localhost:3002',
+})
+
+// After connection is established...
+const [connectionRecord] = await verifierAgent.didcomm.connections.findAllByOutOfBandId(outOfBand.id)
+await verifierAgent.didcomm.connections.returnWhenIsConnected(connectionRecord.id)
+
+// Define the proof request
+const proofExchangeRecord = await verifierAgent.didcomm.proofs.requestProof({
+  protocolVersion: 'v2',
+  connectionId: connectionRecord.id,
+  proofFormats: {
+    anoncreds: {
+      name: 'degree-verification',
+      version: '1.0',
+      requested_attributes: {
+        name: {
+          name: 'name',
+          restrictions: [
+            {
+              cred_def_id: 'credDefId123',
+            },
+          ],
+        },
+        degree: {
+          name: 'degree',
+          restrictions: [
+            {
+              cred_def_id: 'credDefId123',
+            },
+          ],
+        },
+      },
+      requested_predicates: {
+        age: {
+          name: 'age',
+          p_type: '>=',
+          p_value: 18,
+          restrictions: [
+            {
+              cred_def_id: 'credDefId123',
+            },
+          ],
+        },
+      },
+    },
+  },
+})
+
+console.log('Proof request sent:', proofExchangeRecord.id)
+```
+
+### Verify the Presentation
+
+Listen for proof presentation and verify it:
+
+```typescript
+import { DidCommProofEventTypes } from '@credo-ts/didcomm'
+
+verifierAgent.events.on(DidCommProofEventTypes.DidCommProofStateChanged, async (event) => {
+  const proofRecord = event.payload.proofExchangeRecord
+  
+  if (proofRecord.state === 'done') {
+    console.log('Proof received and verified!')
+    
+    // Access the verified attributes
+    const retrievedProof = await verifierAgent.didcomm.proofs.getFormatData(proofRecord.id)
+    
+    if (retrievedProof.presentation?.anoncreds) {
+      const presentation = retrievedProof.presentation.anoncreds
+      console.log('Revealed attributes:', presentation.requested_proof.revealed_attrs)
+      console.log('Self-attested attributes:', presentation.requested_proof.self_attested_attrs)
+      console.log('Predicates satisfied:', presentation.requested_proof.predicates)
+    }
+  }
+})
+```
+
+### Manual Verification
+
+For more control over the verification process:
+
+```typescript
+// Get the proof format data
+const formatData = await verifierAgent.didcomm.proofs.getFormatData(proofExchangeRecord.id)
+
+// Check if proof is valid
+if (proofExchangeRecord.isVerified) {
+  console.log('✓ Proof cryptographically verified')
+  
+  // Extract and validate the data
+  const presentation = formatData.presentation?.anoncreds
+  if (presentation) {
+    const revealedAttrs = presentation.requested_proof.revealed_attrs
+    
+    console.log('Name:', revealedAttrs.name?.raw)
+    console.log('Degree:', revealedAttrs.degree?.raw)
+    
+    // Apply your business logic
+    if (revealedAttrs.degree?.raw === 'Computer Science') {
+      console.log('✓ Degree requirement satisfied')
+    }
+  }
+} else {
+  console.log('✗ Proof verification failed')
+}
+```
+
+</Steps>
+
+## OpenID4VP Presentation Verification
+
+The OpenID4VP approach uses OAuth 2.0-based protocols for presentation requests.
+
+<Steps>
+
+### Set Up the OpenID4VP Verifier
+
+```typescript
+import { Agent } from '@credo-ts/core'
+import { OpenId4VcModule } from '@credo-ts/openid4vc'
+import { AskarModule } from '@credo-ts/askar'
+import { askar } from '@openwallet-foundation/askar-nodejs'
+import express from 'express'
+
+const app = express()
+const VERIFIER_HOST = 'http://localhost:4000'
+
+const verifierAgent = new Agent({
+  config: {},
+  dependencies: agentDependencies,
+  modules: {
+    askar: new AskarModule({ 
+      askar, 
+      store: { id: 'verifier', key: 'verifier-key' } 
+    }),
+    openid4vc: new OpenId4VcModule({
+      app,
+      verifier: {
+        baseUrl: `${VERIFIER_HOST}/oid4vp`,
+      },
+    }),
+  },
+})
+
+await verifierAgent.initialize()
+app.listen(4000)
+
+const verifierRecord = await verifierAgent.modules.openid4vc.verifier.createVerifier()
+```
+
+### Request Presentation with DIF Presentation Exchange
+
+Create a presentation request using DIF Presentation Exchange:
+
+```typescript
+import type { DifPresentationExchangeDefinitionV2 } from '@credo-ts/core'
+
+const presentationDefinition: DifPresentationExchangeDefinitionV2 = {
+  id: 'degree-verification',
+  purpose: 'Verify your university degree',
+  input_descriptors: [
+    {
+      id: 'university-degree',
+      constraints: {
+        fields: [
+          {
+            path: ['$.vc.type.*', '$.vct', '$.type'],
+            filter: {
+              type: 'string',
+              pattern: 'UniversityDegreeCredential',
+            },
+          },
+        ],
+      },
+    },
+  ],
+}
+
+const { authorizationRequest } = 
+  await verifierAgent.modules.openid4vc.verifier.createAuthorizationRequest({
+    requestSigner: {
+      method: 'did',
+      didUrl: `${verifierDid}#key-1`,
+    },
+    verifierId: verifierRecord.verifierId,
+    presentationExchange: {
+      definition: presentationDefinition,
+    },
+  })
+
+const presentationRequestUri = authorizationRequest.authorizationRequestUri
+console.log('Share this URI with the holder:', presentationRequestUri)
+```
+
+### Request Presentation with DCQL
+
+Alternatively, use DCQL (Digital Credentials Query Language):
+
+```typescript
+import type { DcqlQuery } from '@credo-ts/core'
+
+const dcqlQuery: DcqlQuery = {
+  credential_sets: [
+    {
+      required: true,
+      options: [['university-degree-sdjwt'], ['university-degree-jwt']],
+    },
+  ],
+  credentials: [
+    {
+      id: 'university-degree-sdjwt',
+      format: 'vc+sd-jwt',
+      meta: {
+        vct_values: ['UniversityDegreeCredential'],
+      },
+      claims: [
+        {
+          path: ['degree'],
+          values: ['Bachelor', 'Master', 'PhD'],
+        },
+      ],
+    },
+    {
+      id: 'university-degree-jwt',
+      format: 'jwt_vc_json',
+      meta: {
+        type_values: [['UniversityDegreeCredential']],
+      },
+    },
+  ],
+}
+
+const { authorizationRequest } = 
+  await verifierAgent.modules.openid4vc.verifier.createAuthorizationRequest({
+    requestSigner: {
+      method: 'did',
+      didUrl: `${verifierDid}#key-1`,
+    },
+    verifierId: verifierRecord.verifierId,
+    dcql: {
+      query: dcqlQuery,
+    },
+  })
+
+console.log('DCQL Request URI:', authorizationRequest.authorizationRequestUri)
+```
+
+### Verify the Submitted Presentation
+
+Handle the presentation submission and verify it:
+
+```typescript
+import { OpenId4VcVerifierEventTypes } from '@credo-ts/openid4vc'
+
+verifierAgent.events.on(
+  OpenId4VcVerifierEventTypes.OpenId4VpVerificationSessionStateChanged,
+  async (event) => {
+    const session = event.payload.verificationSession
+    
+    if (session.state === 'PresentationVerified') {
+      console.log('✓ Presentation verified successfully!')
+      
+      // Access the verified credentials
+      const presentation = session.presentationExchange
+      if (presentation) {
+        console.log('Verified credentials:', presentation.verifiablePresentation)
+        
+        // Extract claims from SD-JWT credentials
+        if (session.presentationSubmission?.verifiableCredentials) {
+          for (const vc of session.presentationSubmission.verifiableCredentials) {
+            console.log('Credential type:', vc.type)
+            console.log('Credential claims:', vc.claims)
+          }
+        }
+      }
+      
+      // Access DCQL query results
+      if (session.dcql) {
+        console.log('DCQL query result:', session.dcql.queryResult)
+      }
+    }
+  }
+)
+```
+
+### Direct Response Mode
+
+For better user experience, use direct_post response mode:
+
+```typescript
+const { authorizationRequest } = 
+  await verifierAgent.modules.openid4vc.verifier.createAuthorizationRequest({
+    requestSigner: {
+      method: 'did',
+      didUrl: `${verifierDid}#key-1`,
+    },
+    verifierId: verifierRecord.verifierId,
+    responseMode: 'direct_post.jwt',
+    presentationExchange: {
+      definition: presentationDefinition,
+    },
+  })
+
+// The holder will post the presentation directly to your endpoint
+// No need for polling or callbacks
+```
+
+</Steps>
+
+## Best Practices
+
+- Always validate the credential issuer's DID before trusting the presentation
+- Use predicates (zero-knowledge proofs) when you don't need to see the actual value
+- Implement proper timeout handling for presentation requests
+- Log verification results for audit trails
+- Consider revocation status when verifying credentials
+
+## Next Steps
+
+- Learn about [Issuing Credentials](/examples/issuing-credentials)
+- Explore [Connection Establishment](/examples/establishing-connections)
+- Set up [Multi-tenant Agents](/examples/multi-tenant-setup)

@@ -1,0 +1,284 @@
+---
+title: 'Presentation and Proof APIs'
+description: 'Creating and verifying presentations and proofs'
+---
+
+## Overview
+
+Credo supports multiple presentation and proof formats across different APIs:
+
+- **W3C Presentations**: Via `agent.w3cCredentials` for W3C Verifiable Presentations
+- **SD-JWT Presentations**: Via `agent.sdJwtVc` for selective disclosure
+- **DIDComm Proofs**: Via `agent.didcomm.proofs` for DIDComm proof protocols
+
+## W3C Verifiable Presentations
+
+See [W3cCredentialsApi](/api/credentials) for complete documentation.
+
+### Creating a Presentation
+
+```typescript
+const presentation = await agent.w3cCredentials.createPresentation({
+  credentials: [credential1, credential2],
+  holder: holderDid,
+})
+
+const { signedPresentation } = await agent.w3cCredentials.signPresentation({
+  format: ClaimFormat.JwtVp,
+  presentation,
+  challenge: verifierChallenge,
+  verificationMethod: `${holderDid}#key-1`,
+})
+```
+
+### Verifying a Presentation
+
+```typescript
+const result = await agent.w3cCredentials.verifyPresentation({
+  presentation: signedPresentation,
+  challenge: verifierChallenge,
+  domain: 'https://verifier.example.com',
+})
+
+if (result.verified) {
+  console.log('Presentation verified')
+  console.log('Credential results:', result.credentialResults)
+}
+```
+
+## SD-JWT Presentations
+
+SD-JWT supports selective disclosure, allowing holders to reveal only specific claims.
+
+### Creating an SD-JWT Presentation
+
+```typescript
+import { SdJwtVcApi } from '@credo-ts/core'
+
+// Holder creates presentation with selected disclosures
+const presentation = await agent.sdJwtVc.present({
+  sdJwtVc: receivedSdJwtVc,
+  // Only disclose specific claims
+  disclosureFrame: {
+    name: true,
+    age: true,
+    // address is not disclosed
+  },
+  // Optional holder binding
+  holderBinding: {
+    method: 'did',
+    didUrl: holderDid,
+    audience: verifierDid,
+    nonce: verifierNonce,
+  },
+})
+```
+
+**Parameters:**
+
+<ParamField path="sdJwtVc" type="string" required>
+  The received SD-JWT VC compact format
+</ParamField>
+
+<ParamField path="disclosureFrame" type="object" required>
+  Object specifying which claims to disclose
+</ParamField>
+
+<ParamField path="holderBinding" type="object" optional>
+  Holder binding configuration for key binding
+</ParamField>
+
+**Returns:** `Promise<string>` - SD-JWT presentation in compact format
+
+### Verifying an SD-JWT Presentation
+
+```typescript
+const result = await agent.sdJwtVc.verify({
+  sdJwtVc: presentation,
+  keyBinding: {
+    audience: verifierDid,
+    nonce: verifierNonce,
+  },
+  requiredClaimFrame: {
+    name: true,
+    age: true,
+  },
+})
+
+if (result.verification.verified) {
+  console.log('SD-JWT presentation verified')
+  console.log('Disclosed claims:', result.payload)
+}
+```
+
+See [SdJwtVcApi](/api/sd-jwt-vc) for complete documentation.
+
+## DIDComm Proof Protocol
+
+DIDComm provides a complete proof request/presentation protocol for connection-based verification.
+
+### Requesting a Proof (Verifier)
+
+```typescript
+// Request proof from holder
+const proofRecord = await agent.didcomm.proofs.requestProof({
+  connectionId: connectionId,
+  protocolVersion: 'v2',
+  proofFormats: {
+    anoncreds: {
+      name: 'Proof Request',
+      version: '1.0',
+      requested_attributes: {
+        name: {
+          name: 'name',
+          restrictions: [{ schema_id: schemaId }],
+        },
+      },
+      requested_predicates: {
+        age: {
+          name: 'age',
+          p_type: '>=',
+          p_value: 18,
+        },
+      },
+    },
+  },
+})
+```
+
+### Accepting Proof Request (Holder)
+
+```typescript
+// Get available credentials for request
+const credentials = await agent.didcomm.proofs.getCredentialsForRequest({
+  proofExchangeRecordId: proofRecord.id,
+})
+
+// Select credentials
+const selectedCredentials = await agent.didcomm.proofs.selectCredentialsForRequest({
+  proofExchangeRecordId: proofRecord.id,
+})
+
+// Accept request and send presentation
+const updatedRecord = await agent.didcomm.proofs.acceptRequest({
+  proofExchangeRecordId: proofRecord.id,
+  proofFormats: selectedCredentials.proofFormats,
+})
+```
+
+### Verifying Proof (Verifier)
+
+```typescript
+// Accept the presentation
+const finalRecord = await agent.didcomm.proofs.acceptPresentation({
+  proofExchangeRecordId: proofRecord.id,
+})
+
+// Get format-specific data
+const formatData = await agent.didcomm.proofs.getFormatData(
+  proofRecord.id
+)
+
+if (finalRecord.state === DidCommProofState.Done) {
+  console.log('Proof verified successfully')
+}
+```
+
+## Presentation Exchange (DIF)
+
+For Presentation Exchange v2 support, use OpenID4VC:
+
+```typescript
+// Verifier creates authorization request
+const { authorizationRequest } = await agent.openid4vc.verifier.createRequest({
+  requestSigner: {
+    method: 'did',
+    didUrl: verifierDid,
+  },
+  presentationExchange: {
+    definition: presentationDefinition, // DIF PE definition
+  },
+})
+
+// Holder resolves and responds
+const resolved = await agent.openid4vc.holder.resolveAuthorizationRequest(
+  authorizationRequest
+)
+
+const credentials = await agent.openid4vc.holder.getCredentialsForRequest({
+  resolvedAuthorizationRequest: resolved,
+})
+
+const response = await agent.openid4vc.holder.acceptRequest({
+  resolvedAuthorizationRequest: resolved,
+  credentials: selectedCredentials,
+})
+
+// Verifier verifies response
+const verification = await agent.openid4vc.verifier.verifyResponse({
+  authorizationResponse: response,
+})
+```
+
+## Common Patterns
+
+### Challenge-Response Pattern
+
+Most presentation protocols use a challenge (nonce) for replay protection:
+
+```typescript
+// Verifier generates challenge
+const challenge = crypto.randomUUID()
+
+// Holder signs presentation with challenge
+const presentation = await agent.w3cCredentials.signPresentation({
+  // ...
+  challenge,
+})
+
+// Verifier checks challenge
+const result = await agent.w3cCredentials.verifyPresentation({
+  presentation,
+  challenge, // Must match
+})
+```
+
+### Selective Disclosure
+
+Only reveal necessary information:
+
+```typescript
+// SD-JWT: Select specific claims
+const presentation = await agent.sdJwtVc.present({
+  sdJwtVc,
+  disclosureFrame: {
+    name: true,     // Disclose name
+    age: true,      // Disclose age
+    address: false, // Keep address private
+  },
+})
+
+// DIDComm: Request only needed attributes
+const proofRecord = await agent.didcomm.proofs.requestProof({
+  // ...
+  proofFormats: {
+    anoncreds: {
+      requested_attributes: {
+        // Only request name, not full credential
+        name: { name: 'name' },
+      },
+      requested_predicates: {
+        // Use predicate to prove age >= 18 without revealing exact age
+        age: { name: 'age', p_type: '>=', p_value: 18 },
+      },
+    },
+  },
+})
+```
+
+## See Also
+
+- [W3cCredentialsApi](/api/credentials) - W3C Verifiable Credentials and Presentations
+- [SdJwtVcApi](/api/sd-jwt-vc) - SD-JWT Verifiable Credentials with selective disclosure
+- [DIDComm Proofs](/api/didcomm#proofsapi) - DIDComm proof protocol
+- [OpenId4VcApi](/api/openid4vc) - OpenID4VC with Presentation Exchange

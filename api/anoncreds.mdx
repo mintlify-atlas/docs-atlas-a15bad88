@@ -1,0 +1,570 @@
+---
+title: 'AnonCredsApi'
+description: 'AnonCreds (Anonymous Credentials) API'
+---
+
+## Overview
+
+The AnonCredsApi provides methods for working with AnonCreds, a privacy-preserving credential format that supports zero-knowledge proofs and predicates.
+
+AnonCreds is typically used with Hyperledger Indy and supports:
+- Zero-knowledge proofs
+- Predicate proofs (e.g., age > 18 without revealing exact age)
+- Revocation
+- Multi-credential proofs
+
+```typescript
+import { AnonCredsModule } from '@credo-ts/anoncreds'
+import { Agent } from '@credo-ts/core'
+
+const agent = new Agent({
+  // ...
+  modules: {
+    anoncreds: new AnonCredsModule({
+      registries: [indyVdrRegistry],
+    }),
+  },
+})
+
+// Access via modules
+const api = agent.modules.anoncreds
+```
+
+## Setup Methods
+
+### createLinkSecret()
+
+Create a link secret (master secret) for the holder. Required before receiving credentials.
+
+```typescript
+const linkSecretId = await agent.modules.anoncreds.createLinkSecret({
+  linkSecretId: 'my-link-secret',
+  setAsDefault: true,
+})
+
+console.log('Link secret created:', linkSecretId)
+```
+
+<ParamField path="options.linkSecretId" type="string" optional>
+  Optional ID for the link secret. Generated if not provided.
+</ParamField>
+
+<ParamField path="options.setAsDefault" type="boolean" optional default="false">
+  Whether to set as default link secret. First link secret is always default.
+</ParamField>
+
+**Returns:** `Promise<string>` - The link secret ID
+
+### getLinkSecretIds()
+
+Get all link secret IDs created by the agent.
+
+```typescript
+const linkSecretIds = await agent.modules.anoncreds.getLinkSecretIds()
+console.log('Link secrets:', linkSecretIds)
+```
+
+**Returns:** `Promise<string[]>`
+
+## Schema Operations
+
+### registerSchema()
+
+Register a credential schema on the ledger.
+
+```typescript
+const result = await agent.modules.anoncreds.registerSchema({
+  schema: {
+    issuerId: issuerDid,
+    name: 'Employee Credential',
+    version: '1.0',
+    attrNames: ['name', 'employee_id', 'department', 'hire_date'],
+  },
+  options: {},
+})
+
+if (result.schemaState.state === 'finished') {
+  const schemaId = result.schemaState.schemaId
+  console.log('Schema registered:', schemaId)
+}
+```
+
+<ParamField path="options.schema" type="AnonCredsSchema" required>
+  Schema definition:
+  
+  - `issuerId`: Issuer DID
+  - `name`: Schema name
+  - `version`: Schema version
+  - `attrNames`: Array of attribute names
+</ParamField>
+
+<ParamField path="options.options" type="object" required>
+  Registry-specific options
+</ParamField>
+
+**Returns:** `Promise<RegisterSchemaReturn>`
+
+### getSchema()
+
+Retrieve a schema from the ledger.
+
+```typescript
+const { schema, resolutionMetadata } = await agent.modules.anoncreds.getSchema(
+  'did:indy:sovrin:5nDyJVP1NrcPAttP3xwMB9/anoncreds/v0/SCHEMA/Employee/1.0'
+)
+
+if (schema) {
+  console.log('Schema:', schema.attrNames)
+}
+```
+
+<ParamField path="schemaId" type="string" required>
+  Schema identifier
+</ParamField>
+
+<ParamField path="options" type="AnonCredsResolutionOptions" optional>
+  Resolution options
+</ParamField>
+
+**Returns:** `Promise<GetSchemaReturn>`
+
+### getCreatedSchemas()
+
+Get schemas created by this agent.
+
+```typescript
+const schemas = await agent.modules.anoncreds.getCreatedSchemas({
+  schemaName: 'Employee Credential',
+})
+```
+
+<ParamField path="query" type="SimpleQuery<AnonCredsSchemaRecord>" required>
+  Query to filter schemas
+</ParamField>
+
+**Returns:** `Promise<AnonCredsSchemaRecord[]>`
+
+## Credential Definition Operations
+
+### registerCredentialDefinition()
+
+Register a credential definition on the ledger.
+
+```typescript
+const result = await agent.modules.anoncreds.registerCredentialDefinition({
+  credentialDefinition: {
+    issuerId: issuerDid,
+    schemaId: schemaId,
+    tag: 'default',
+  },
+  options: {
+    supportRevocation: true,
+  },
+})
+
+if (result.credentialDefinitionState.state === 'finished') {
+  const credDefId = result.credentialDefinitionState.credentialDefinitionId
+  console.log('Credential definition registered:', credDefId)
+}
+```
+
+<ParamField path="options.credentialDefinition" type="AnonCredsRegisterCredentialDefinitionOptions" required>
+  Credential definition options:
+  
+  - `issuerId`: Issuer DID
+  - `schemaId`: Schema identifier
+  - `tag`: Tag to distinguish multiple definitions for same schema
+</ParamField>
+
+<ParamField path="options.options" type="object" required>
+  Options:
+  
+  - `supportRevocation`: Whether to support revocation
+</ParamField>
+
+**Returns:** `Promise<RegisterCredentialDefinitionReturn>`
+
+### getCredentialDefinition()
+
+Retrieve a credential definition.
+
+```typescript
+const { credentialDefinition } = await agent.modules.anoncreds.getCredentialDefinition(
+  credentialDefinitionId
+)
+
+if (credentialDefinition) {
+  console.log('Schema ID:', credentialDefinition.schemaId)
+}
+```
+
+<ParamField path="credentialDefinitionId" type="string" required>
+  Credential definition identifier
+</ParamField>
+
+<ParamField path="options" type="AnonCredsResolutionOptions" optional>
+  Resolution options
+</ParamField>
+
+**Returns:** `Promise<GetCredentialDefinitionReturn>`
+
+### getCreatedCredentialDefinitions()
+
+Get credential definitions created by this agent.
+
+```typescript
+const credDefs = await agent.modules.anoncreds.getCreatedCredentialDefinitions({
+  schemaId: schemaId,
+})
+```
+
+<ParamField path="query" type="SimpleQuery<AnonCredsCredentialDefinitionRecord>" required>
+  Query to filter credential definitions
+</ParamField>
+
+**Returns:** `Promise<AnonCredsCredentialDefinitionRecord[]>`
+
+## Revocation Operations
+
+### registerRevocationRegistryDefinition()
+
+Register a revocation registry definition.
+
+```typescript
+const result = await agent.modules.anoncreds.registerRevocationRegistryDefinition({
+  revocationRegistryDefinition: {
+    issuerId: issuerDid,
+    tag: 'default',
+    credentialDefinitionId: credDefId,
+    maximumCredentialNumber: 1000,
+  },
+  options: {},
+})
+
+if (result.revocationRegistryDefinitionState.state === 'finished') {
+  const revRegDefId = result.revocationRegistryDefinitionState.revocationRegistryDefinitionId
+  console.log('Revocation registry registered:', revRegDefId)
+}
+```
+
+<ParamField path="options.revocationRegistryDefinition" type="AnonCredsRegisterRevocationRegistryDefinitionOptions" required>
+  Revocation registry options:
+  
+  - `issuerId`: Issuer DID
+  - `tag`: Tag for registry
+  - `credentialDefinitionId`: Associated credential definition
+  - `maximumCredentialNumber`: Maximum number of credentials
+</ParamField>
+
+<ParamField path="options.options" type="object" required>
+  Registry-specific options
+</ParamField>
+
+**Returns:** `Promise<RegisterRevocationRegistryDefinitionReturn>`
+
+### getRevocationRegistryDefinition()
+
+Retrieve a revocation registry definition.
+
+```typescript
+const { revocationRegistryDefinition } = 
+  await agent.modules.anoncreds.getRevocationRegistryDefinition(revRegDefId)
+```
+
+<ParamField path="revocationRegistryDefinitionId" type="string" required>
+  Revocation registry definition identifier
+</ParamField>
+
+<ParamField path="options" type="AnonCredsResolutionOptions" optional>
+  Resolution options
+</ParamField>
+
+**Returns:** `Promise<GetRevocationRegistryDefinitionReturn>`
+
+### registerRevocationStatusList()
+
+Register the initial revocation status list.
+
+```typescript
+const result = await agent.modules.anoncreds.registerRevocationStatusList({
+  revocationStatusList: {
+    issuerId: issuerDid,
+    revocationRegistryDefinitionId: revRegDefId,
+  },
+  options: {},
+})
+```
+
+<ParamField path="options.revocationStatusList" type="AnonCredsRegisterRevocationStatusListOptions" required>
+  Revocation status list options
+</ParamField>
+
+<ParamField path="options.options" type="object" required>
+  Registry-specific options
+</ParamField>
+
+**Returns:** `Promise<RegisterRevocationStatusListReturn>`
+
+### updateRevocationStatusList()
+
+Update the revocation status list (revoke or un-revoke credentials).
+
+```typescript
+const result = await agent.modules.anoncreds.updateRevocationStatusList({
+  revocationStatusList: {
+    revocationRegistryDefinitionId: revRegDefId,
+    revokedCredentialIndexes: [1, 5, 10], // Revoke these
+    issuedCredentialIndexes: [],
+  },
+  options: {},
+})
+```
+
+<ParamField path="options.revocationStatusList" type="AnonCredsUpdateRevocationStatusListOptions" required>
+  Update options:
+  
+  - `revocationRegistryDefinitionId`: Registry ID
+  - `revokedCredentialIndexes`: Credential indexes to revoke
+  - `issuedCredentialIndexes`: Credential indexes to issue
+</ParamField>
+
+<ParamField path="options.options" type="object" required>
+  Registry-specific options
+</ParamField>
+
+**Returns:** `Promise<RegisterRevocationStatusListReturn>`
+
+### getRevocationStatusList()
+
+Retrieve a revocation status list at a specific timestamp.
+
+```typescript
+const { revocationStatusList } = 
+  await agent.modules.anoncreds.getRevocationStatusList(
+    revRegDefId,
+    Date.now()
+  )
+```
+
+<ParamField path="revocationRegistryDefinitionId" type="string" required>
+  Revocation registry definition identifier
+</ParamField>
+
+<ParamField path="timestamp" type="number" required>
+  Timestamp to query (milliseconds since epoch)
+</ParamField>
+
+<ParamField path="options" type="AnonCredsResolutionOptions" optional>
+  Resolution options
+</ParamField>
+
+**Returns:** `Promise<GetRevocationStatusListReturn>`
+
+## Credential Operations
+
+### getCredential()
+
+Get a stored AnonCreds credential by ID.
+
+```typescript
+const credential = await agent.modules.anoncreds.getCredential(credentialId)
+console.log('Credential:', credential)
+```
+
+<ParamField path="id" type="string" required>
+  Credential ID
+</ParamField>
+
+**Returns:** `Promise<AnonCredsCredential>`
+
+### getCredentials()
+
+Get all stored AnonCreds credentials matching options.
+
+```typescript
+const credentials = await agent.modules.anoncreds.getCredentials({
+  credentialDefinitionId: credDefId,
+})
+
+console.log(`Found ${credentials.length} credentials`)
+```
+
+<ParamField path="options" type="GetCredentialsOptions" required>
+  Filter options
+</ParamField>
+
+**Returns:** `Promise<AnonCredsCredential[]>`
+
+## Complete Example
+
+### Issuer Setup
+
+```typescript
+import { Agent } from '@credo-ts/core'
+import { AnonCredsModule } from '@credo-ts/anoncreds'
+
+const issuer = new Agent({
+  // ...
+  modules: {
+    anoncreds: new AnonCredsModule({
+      registries: [indyVdrRegistry],
+    }),
+  },
+})
+
+await issuer.initialize()
+
+// Register schema
+const schemaResult = await issuer.modules.anoncreds.registerSchema({
+  schema: {
+    issuerId: 'did:indy:sovrin:V4SGRU86Z58d6TV7PBUe6f',
+    name: 'EmployeeCredential',
+    version: '1.0',
+    attrNames: ['name', 'employee_id', 'department', 'hire_date', 'salary'],
+  },
+  options: {},
+})
+
+const schemaId = schemaResult.schemaState.schemaId
+
+// Register credential definition
+const credDefResult = await issuer.modules.anoncreds.registerCredentialDefinition({
+  credentialDefinition: {
+    issuerId: 'did:indy:sovrin:V4SGRU86Z58d6TV7PBUe6f',
+    schemaId,
+    tag: 'employee-2024',
+  },
+  options: {
+    supportRevocation: true,
+  },
+})
+
+const credDefId = credDefResult.credentialDefinitionState.credentialDefinitionId
+
+// Register revocation registry
+const revRegResult = await issuer.modules.anoncreds.registerRevocationRegistryDefinition({
+  revocationRegistryDefinition: {
+    issuerId: 'did:indy:sovrin:V4SGRU86Z58d6TV7PBUe6f',
+    tag: 'default',
+    credentialDefinitionId: credDefId,
+    maximumCredentialNumber: 5000,
+  },
+  options: {},
+})
+
+const revRegDefId = revRegResult.revocationRegistryDefinitionState.revocationRegistryDefinitionId
+
+// Register initial revocation status list
+await issuer.modules.anoncreds.registerRevocationStatusList({
+  revocationStatusList: {
+    issuerId: 'did:indy:sovrin:V4SGRU86Z58d6TV7PBUe6f',
+    revocationRegistryDefinitionId: revRegDefId,
+  },
+  options: {},
+})
+```
+
+### Holder Setup
+
+```typescript
+import { Agent } from '@credo-ts/core'
+import { AnonCredsModule } from '@credo-ts/anoncreds'
+
+const holder = new Agent({
+  // ...
+  modules: {
+    anoncreds: new AnonCredsModule({
+      registries: [indyVdrRegistry],
+    }),
+  },
+})
+
+await holder.initialize()
+
+// Create link secret (required before receiving credentials)
+const linkSecretId = await holder.modules.anoncreds.createLinkSecret({
+  setAsDefault: true,
+})
+
+console.log('Link secret created:', linkSecretId)
+
+// Now ready to receive AnonCreds credentials via DIDComm
+```
+
+### Revoking a Credential
+
+```typescript
+// Revoke credential at index 42
+const result = await issuer.modules.anoncreds.updateRevocationStatusList({
+  revocationStatusList: {
+    revocationRegistryDefinitionId: revRegDefId,
+    revokedCredentialIndexes: [42],
+    issuedCredentialIndexes: [],
+  },
+  options: {},
+})
+
+if (result.revocationStatusListState.state === 'finished') {
+  console.log('Credential revoked successfully')
+}
+```
+
+## Usage with DIDComm
+
+AnonCreds is typically used with DIDComm credential exchange:
+
+```typescript
+// Issue credential via DIDComm
+const credentialRecord = await agent.didcomm.credentials.offerCredential({
+  connectionId,
+  protocolVersion: 'v2',
+  credentialFormats: {
+    anoncreds: {
+      credentialDefinitionId: credDefId,
+      attributes: [
+        { name: 'name', value: 'Alice Smith' },
+        { name: 'employee_id', value: 'E12345' },
+        { name: 'department', value: 'Engineering' },
+        { name: 'hire_date', value: '2024-01-15' },
+        { name: 'salary', value: '75000' },
+      ],
+    },
+  },
+  autoAcceptCredential: AutoAcceptCredential.ContentApproved,
+})
+
+// Request proof via DIDComm
+const proofRecord = await agent.didcomm.proofs.requestProof({
+  connectionId,
+  protocolVersion: 'v2',
+  proofFormats: {
+    anoncreds: {
+      name: 'Employment Verification',
+      version: '1.0',
+      requested_attributes: {
+        name: {
+          name: 'name',
+          restrictions: [{ cred_def_id: credDefId }],
+        },
+        department: {
+          name: 'department',
+          restrictions: [{ cred_def_id: credDefId }],
+        },
+      },
+      requested_predicates: {
+        salary: {
+          name: 'salary',
+          p_type: '>=',
+          p_value: 50000,
+          restrictions: [{ cred_def_id: credDefId }],
+        },
+      },
+    },
+  },
+})
+```
+
+## See Also
+
+- [DIDComm Credentials](/api/didcomm#credentialsapi) - Issuing AnonCreds via DIDComm
+- [DIDComm Proofs](/api/didcomm#proofsapi) - Requesting AnonCreds proofs via DIDComm

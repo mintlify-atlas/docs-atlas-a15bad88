@@ -1,0 +1,513 @@
+---
+title: "Dependency Injection"
+description: "Learn how to use the DependencyManager for inversion of control in Credo"
+---
+
+## Overview
+
+Credo uses [TSyringe](https://github.com/microsoft/tsyringe) for dependency injection, providing inversion of control throughout the framework. The `DependencyManager` wraps TSyringe's container and provides additional Credo-specific functionality.
+
+## DependencyManager
+
+The `DependencyManager` manages service registration and resolution:
+
+```typescript
+import { DependencyManager, InjectionToken } from '@credo-ts/core'
+
+export class DependencyManager {
+  public readonly container: DependencyContainer
+  public readonly registeredModules: ModulesMap
+
+  // Registration methods
+  registerSingleton<T>(token: Constructor<T>): void
+  registerSingleton<T>(from: InjectionToken<T>, to: InjectionToken<T>): void
+  registerContextScoped<T>(token: Constructor<T>): void
+  registerInstance<T>(token: InjectionToken<T>, instance: T): void
+
+  // Resolution
+  resolve<T>(token: InjectionToken<T>): T
+  isRegistered<T>(token: InjectionToken<T>, recursive?: boolean): boolean
+}
+```
+
+## Injectable Decorator
+
+Mark classes as injectable to enable dependency injection:
+
+```typescript
+import { injectable } from '@credo-ts/core'
+
+@injectable()
+export class MyService {
+  constructor() {
+    // Dependencies can be injected here
+  }
+
+  async doSomething() {
+    return 'result'
+  }
+}
+```
+
+## Inject Decorator
+
+Inject dependencies using the `@inject` decorator:
+
+```typescript
+import { injectable, inject, InjectionSymbols, Logger } from '@credo-ts/core'
+
+@injectable()
+export class MyService {
+  private logger: Logger
+
+  constructor(
+    @inject(InjectionSymbols.Logger) logger: Logger
+  ) {
+    this.logger = logger
+  }
+
+  async doSomething() {
+    this.logger.info('Doing something')
+  }
+}
+```
+
+## Registration Scopes
+
+### Singleton
+
+One instance shared across the entire application:
+
+```typescript
+export class MyModule implements Module {
+  register(dependencyManager: DependencyManager) {
+    // Register as singleton
+    dependencyManager.registerSingleton(MyService)
+  }
+}
+```
+
+Use singletons for:
+- Services with no state
+- Services that maintain global state
+- Connection pools
+- Configuration objects
+
+### Context Scoped
+
+One instance per agent context (important for multi-tenancy):
+
+```typescript
+export class MyModule implements Module {
+  register(dependencyManager: DependencyManager) {
+    // Register as context scoped
+    dependencyManager.registerContextScoped(MyService)
+  }
+}
+```
+
+Use context scoped for:
+- Services that need context isolation
+- Multi-tenant services
+- Services with per-context state
+
+### Instance
+
+Register a specific instance:
+
+```typescript
+export class MyModule implements Module {
+  register(dependencyManager: DependencyManager) {
+    const config = new MyModuleConfig({ /* options */ })
+    dependencyManager.registerInstance(MyModuleConfig, config)
+  }
+}
+```
+
+Use instances for:
+- Configuration objects
+- Pre-configured services
+- External dependencies
+
+## Injection Tokens
+
+Use injection tokens to avoid circular dependencies and enable interface-based injection:
+
+```typescript
+import { InjectionSymbols } from '@credo-ts/core'
+
+// Built-in injection symbols
+export const InjectionSymbols = {
+  Logger: Symbol('Logger'),
+  StorageService: Symbol('StorageService'),
+  EventEmitter: Symbol('EventEmitter'),
+  AgentDependencies: Symbol('AgentDependencies'),
+  // ... more symbols
+}
+```
+
+### Using Injection Tokens
+
+```typescript
+import { injectable, inject, InjectionSymbols, Logger } from '@credo-ts/core'
+
+@injectable()
+export class MyService {
+  constructor(
+    @inject(InjectionSymbols.Logger) private logger: Logger
+  ) {}
+}
+```
+
+### Creating Custom Tokens
+
+```typescript
+// Define your token
+export const MyServiceSymbol = Symbol('MyService')
+
+// Register with token
+export class MyModule implements Module {
+  register(dependencyManager: DependencyManager) {
+    dependencyManager.registerSingleton(MyServiceSymbol, MyServiceImpl)
+  }
+}
+
+// Inject using token
+@injectable()
+export class ConsumerService {
+  constructor(
+    @inject(MyServiceSymbol) private myService: MyServiceInterface
+  ) {}
+}
+```
+
+## AgentContext Injection
+
+Many services need access to the `AgentContext`:
+
+```typescript
+import { injectable, AgentContext } from '@credo-ts/core'
+
+@injectable()
+export class MyContextAwareService {
+  private agentContext: AgentContext
+
+  constructor(agentContext: AgentContext) {
+    this.agentContext = agentContext
+  }
+
+  async doSomething() {
+    // Access context-specific resources
+    const wallet = this.agentContext.wallet
+    const storage = this.agentContext.storageService
+    const contextId = this.agentContext.contextCorrelationId
+  }
+}
+```
+
+## API Classes
+
+API classes are automatically registered when specified in a module:
+
+```typescript
+import { Module, injectable, AgentContext } from '@credo-ts/core'
+
+@injectable()
+export class MyCustomApi {
+  private agentContext: AgentContext
+  private myService: MyCustomService
+
+  constructor(agentContext: AgentContext, myService: MyCustomService) {
+    this.agentContext = agentContext
+    this.myService = myService
+  }
+
+  async performAction() {
+    return this.myService.doSomething()
+  }
+}
+
+export class MyCustomModule implements Module {
+  public api = MyCustomApi // Automatically registered as context scoped
+
+  register(dependencyManager: DependencyManager) {
+    dependencyManager.registerSingleton(MyCustomService)
+  }
+}
+```
+
+Access via the agent:
+
+```typescript
+const agent = new Agent({
+  modules: {
+    myCustom: new MyCustomModule(),
+  },
+})
+
+await agent.initialize()
+
+// API is available on agent.modules
+const result = await agent.modules.myCustom.performAction()
+```
+
+## Resolving Dependencies
+
+### Direct Resolution
+
+```typescript
+// From agent context
+const myService = agentContext.dependencyManager.resolve(MyService)
+
+// From module registration
+export class MyModule implements Module {
+  register(dependencyManager: DependencyManager) {
+    // Check if already registered
+    if (!dependencyManager.isRegistered(MyService)) {
+      dependencyManager.registerSingleton(MyService)
+    }
+  }
+
+  async initialize(agentContext: AgentContext) {
+    // Resolve during initialization
+    const myService = agentContext.dependencyManager.resolve(MyService)
+    await myService.setup()
+  }
+}
+```
+
+### Checking Registration
+
+```typescript
+export class MyModule implements Module {
+  register(dependencyManager: DependencyManager) {
+    // Check local container
+    if (!dependencyManager.isRegistered(MyService)) {
+      dependencyManager.registerSingleton(MyService)
+    }
+
+    // Check including parent containers
+    if (!dependencyManager.isRegistered(MyService, true)) {
+      // Not found in hierarchy
+    }
+  }
+}
+```
+
+## Multi-Injection
+
+Inject all implementations of a token:
+
+```typescript
+import { injectAll } from '@credo-ts/core'
+
+// Define a token
+export const PluginSymbol = Symbol('Plugin')
+
+interface Plugin {
+  name: string
+  execute(): void
+}
+
+// Register multiple implementations
+dependencyManager.registerSingleton(PluginSymbol, Plugin1)
+dependencyManager.registerSingleton(PluginSymbol, Plugin2)
+
+// Inject all
+@injectable()
+export class PluginManager {
+  constructor(
+    @injectAll(PluginSymbol) private plugins: Plugin[]
+  ) {}
+
+  executeAll() {
+    for (const plugin of this.plugins) {
+      plugin.execute()
+    }
+  }
+}
+```
+
+## Advanced Patterns
+
+### Factory Pattern
+
+```typescript
+import { injectable, DependencyManager } from '@credo-ts/core'
+
+@injectable()
+export class ConnectionFactory {
+  constructor(private dependencyManager: DependencyManager) {}
+
+  createConnection(type: 'http' | 'websocket') {
+    if (type === 'http') {
+      return this.dependencyManager.resolve(HttpConnection)
+    } else {
+      return this.dependencyManager.resolve(WebSocketConnection)
+    }
+  }
+}
+```
+
+### Conditional Registration
+
+```typescript
+export class MyModule implements Module {
+  private config: MyModuleConfig
+
+  constructor(config: MyModuleOptions) {
+    this.config = new MyModuleConfig(config)
+  }
+
+  register(dependencyManager: DependencyManager) {
+    dependencyManager.registerInstance(MyModuleConfig, this.config)
+
+    // Conditional registration based on config
+    if (this.config.useCache) {
+      dependencyManager.registerSingleton(CachedService)
+    } else {
+      dependencyManager.registerSingleton(DirectService)
+    }
+  }
+}
+```
+
+### Interface-Based Injection
+
+```typescript
+// Define interface
+export interface IStorageService {
+  save(data: unknown): Promise<void>
+  load(): Promise<unknown>
+}
+
+// Define token
+export const StorageServiceToken = Symbol('StorageService')
+
+// Implementation
+@injectable()
+export class InMemoryStorageService implements IStorageService {
+  async save(data: unknown) { /* ... */ }
+  async load() { /* ... */ }
+}
+
+// Register
+dependencyManager.registerSingleton(StorageServiceToken, InMemoryStorageService)
+
+// Inject
+@injectable()
+export class DataService {
+  constructor(
+    @inject(StorageServiceToken) private storage: IStorageService
+  ) {}
+}
+```
+
+## Child Containers
+
+Create child containers for isolated scopes:
+
+```typescript
+const childDependencyManager = dependencyManager.createChild()
+
+// Child inherits parent registrations
+// but can override them locally
+childDependencyManager.registerSingleton(MyService, AlternativeService)
+
+// Disposal is isolated
+await childDependencyManager.container.dispose()
+```
+
+## Best Practices
+
+### 1. Use Constructor Injection
+
+Always prefer constructor injection over property injection:
+
+```typescript
+// Good
+@injectable()
+export class MyService {
+  constructor(
+    private logger: Logger,
+    private storage: StorageService
+  ) {}
+}
+
+// Avoid property injection when possible
+```
+
+### 2. Use Injection Tokens for Interfaces
+
+```typescript
+// Good - uses token for interface
+const StorageToken = Symbol('Storage')
+dependencyManager.registerSingleton(StorageToken, StorageImpl)
+
+// Less flexible - tightly coupled to implementation
+dependencyManager.registerSingleton(StorageImpl)
+```
+
+### 3. Register in Module's register() Method
+
+```typescript
+export class MyModule implements Module {
+  register(dependencyManager: DependencyManager) {
+    // All registration happens here
+    dependencyManager.registerSingleton(MyService)
+    dependencyManager.registerContextScoped(MyApi)
+  }
+}
+```
+
+### 4. Use Context Scoped for Multi-Tenant Services
+
+```typescript
+// Context scoped ensures isolation between tenants
+dependencyManager.registerContextScoped(TenantSpecificService)
+```
+
+### 5. Avoid Circular Dependencies
+
+Use injection tokens to break circular dependencies:
+
+```typescript
+// Instead of direct class references that might be circular
+const ServiceAToken = Symbol('ServiceA')
+const ServiceBToken = Symbol('ServiceB')
+
+@injectable()
+class ServiceA {
+  constructor(@inject(ServiceBToken) private serviceB: IServiceB) {}
+}
+
+@injectable()
+class ServiceB {
+  constructor(@inject(ServiceAToken) private serviceA: IServiceA) {}
+}
+```
+
+## Common Injection Symbols
+
+```typescript
+import { InjectionSymbols } from '@credo-ts/core'
+
+// Commonly used symbols
+InjectionSymbols.Logger              // Logger instance
+InjectionSymbols.StorageService      // Storage service
+InjectionSymbols.EventEmitter        // Event emitter
+InjectionSymbols.Wallet              // Wallet instance
+InjectionSymbols.AgentDependencies   // Platform dependencies
+InjectionSymbols.Stop$               // Shutdown subject
+```
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Custom Modules" icon="puzzle-piece" href="/advanced/custom-modules">
+    Learn how to create modules with dependency injection
+  </Card>
+  <Card title="TSyringe Docs" icon="link" href="https://github.com/microsoft/tsyringe">
+    Official TSyringe documentation
+  </Card>
+</CardGroup>

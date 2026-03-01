@@ -1,0 +1,665 @@
+---
+title: Storage
+description: Storage architecture and options in Credo
+---
+
+Credo provides a flexible storage architecture that supports multiple storage backends. Understanding the storage system is crucial for building production-ready applications.
+
+## Storage Architecture
+
+Credo's storage architecture is built on three core concepts:
+
+1. **StorageService**: Interface for storage operations
+2. **Repository**: Domain-specific data access layer
+3. **BaseRecord**: Base class for all storable records
+
+### StorageService Interface
+
+The `StorageService` interface defines the contract for storage implementations:
+
+```typescript
+export interface StorageService<T extends BaseRecord> {
+  supportsCursorPagination: boolean
+  
+  // Core operations
+  save(agentContext: AgentContext, record: T): Promise<void>
+  update(agentContext: AgentContext, record: T): Promise<void>
+  delete(agentContext: AgentContext, record: T): Promise<void>
+  deleteById(agentContext: AgentContext, recordClass: BaseRecordConstructor<T>, id: string): Promise<void>
+  
+  // Retrieval
+  getById(agentContext: AgentContext, recordClass: BaseRecordConstructor<T>, id: string): Promise<T>
+  getAll(agentContext: AgentContext, recordClass: BaseRecordConstructor<T>): Promise<T[]>
+  findByQuery(
+    agentContext: AgentContext,
+    recordClass: BaseRecordConstructor<T>,
+    query: Query<T>,
+    queryOptions?: QueryOptions
+  ): Promise<T[]>
+  
+  // Optional: Locking support
+  updateByIdWithLock?(
+    agentContext: AgentContext,
+    recordClass: BaseRecordConstructor<T>,
+    id: string,
+    updateCallback: (record: T) => Promise<T>
+  ): Promise<T>
+  
+  supportsLocking?(agentContext: AgentContext): boolean
+}
+```
+
+Source: `packages/core/src/storage/StorageService.ts:89`
+
+<Info>
+The `StorageService` interface is implemented by storage backend modules like AskarModule and DrizzleStorageModule. You typically don't interact with it directly.
+</Info>
+
+### Repository Pattern
+
+Repositories provide domain-specific access to stored records:
+
+```typescript
+export class Repository<T extends BaseRecord> {
+  // Save a record
+  public async save(agentContext: AgentContext, record: T): Promise<void>
+  
+  // Update a record
+  public async update(agentContext: AgentContext, record: T): Promise<void>
+  
+  // Update with locking (if supported)
+  public async updateByIdWithLock(
+    agentContext: AgentContext,
+    id: string,
+    updateCallback: (record: T) => Promise<T>
+  ): Promise<T>
+  
+  // Delete a record
+  public async delete(agentContext: AgentContext, record: T): Promise<void>
+  public async deleteById(agentContext: AgentContext, id: string): Promise<void>
+  
+  // Retrieve records
+  public async getById(agentContext: AgentContext, id: string): Promise<T>
+  public async findById(agentContext: AgentContext, id: string): Promise<T | null>
+  public async getAll(agentContext: AgentContext): Promise<T[]>
+  
+  // Query records
+  public async findByQuery(agentContext: AgentContext, query: Query<T>, queryOptions?: QueryOptions): Promise<T[]>
+  public async findSingleByQuery(agentContext: AgentContext, query: Query<T>): Promise<T | null>
+  public async getSingleByQuery(agentContext: AgentContext, query: Query<T>): Promise<T>
+}
+```
+
+Source: `packages/core/src/storage/Repository.ts:13`
+
+### BaseRecord Class
+
+All records stored in Credo extend `BaseRecord`:
+
+```typescript
+export abstract class BaseRecord<
+  DefaultTags extends TagsBase = TagsBase,
+  CustomTags extends TagsBase = TagsBase,
+  MetadataValues = {},
+> {
+  public id: string
+  public createdAt: Date
+  public updatedAt?: Date
+  
+  public readonly type: string
+  public static readonly type: string
+  
+  public metadata: Metadata<MetadataValues>
+  
+  // Tags for querying
+  public abstract getTags(): Tags<DefaultTags, CustomTags>
+  public setTag(name: string, value: TagValue): void
+  public getTag(name: string): TagValue
+  public setTags(tags: Partial<CustomTags>): void
+  
+  // Serialization
+  public toJSON(): object
+  public clone(): this
+}
+```
+
+Source: `packages/core/src/storage/BaseRecord.ts:25`
+
+## Storage Backends
+
+Credo supports multiple storage backends:
+
+### Aries Askar (Recommended)
+
+Askar is the recommended storage backend for production use.
+
+**Package:** `@credo-ts/askar`
+
+**Features:**
+- Secure encrypted storage
+- SQLite and PostgreSQL support
+- Multi-tenancy support
+- High performance
+- Cross-platform (Node.js, React Native)
+
+**Setup:**
+
+```typescript
+import { Agent } from '@credo-ts/core'
+import { AskarModule } from '@credo-ts/askar'
+import { ariesAskar } from '@hyperledger/aries-askar-nodejs'
+import { agentDependencies } from '@credo-ts/node'
+
+const agent = new Agent({
+  config: {
+    label: 'My Agent',
+    // ... other config
+  },
+  modules: {
+    askar: new AskarModule({
+      ariesAskar,
+      // SQLite (single wallet)
+      sqliteInMemory: false,
+      sqlitePath: './wallet.db',
+    }),
+  },
+  dependencies: agentDependencies,
+})
+```
+
+**Multi-Wallet Setup:**
+
+```typescript
+const agent = new Agent({
+  config: { /* ... */ },
+  modules: {
+    askar: new AskarModule({
+      ariesAskar,
+      multiWalletDatabasePath: './wallets',
+      multiWalletDatabaseScheme: 'MultiWalletSingleTable',
+    }),
+  },
+  dependencies: agentDependencies,
+})
+```
+
+**PostgreSQL Setup:**
+
+```typescript
+const agent = new Agent({
+  config: { /* ... */ },
+  modules: {
+    askar: new AskarModule({
+      ariesAskar,
+      multiWalletDatabasePath: 'postgres://user:pass@localhost:5432/wallet',
+      multiWalletDatabaseScheme: 'DatabasePerWallet',
+    }),
+  },
+  dependencies: agentDependencies,
+})
+```
+
+<Note>
+Askar automatically handles encryption of sensitive data at rest. The wallet key is used to encrypt/decrypt data.
+</Note>
+
+### Drizzle Storage
+
+Drizzle provides a SQL-based storage backend with flexibility.
+
+**Package:** `@credo-ts/drizzle-storage`
+
+**Features:**
+- SQL database support (PostgreSQL, MySQL, SQLite)
+- TypeScript-first ORM
+- Cursor-based pagination
+- Record locking support
+- Custom schema support
+
+**Setup:**
+
+```typescript
+import { Agent } from '@credo-ts/core'
+import { DrizzleStorageModule } from '@credo-ts/drizzle-storage'
+import { drizzle } from 'drizzle-orm/better-sqlite3'
+import Database from 'better-sqlite3'
+import { agentDependencies } from '@credo-ts/node'
+
+const sqlite = new Database('./wallet.db')
+const db = drizzle(sqlite)
+
+const agent = new Agent({
+  config: { /* ... */ },
+  modules: {
+    drizzleStorage: new DrizzleStorageModule({
+      connection: db,
+    }),
+  },
+  dependencies: agentDependencies,
+})
+```
+
+**PostgreSQL Setup:**
+
+```typescript
+import { drizzle } from 'drizzle-orm/node-postgres'
+import { Pool } from 'pg'
+
+const pool = new Pool({
+  host: 'localhost',
+  port: 5432,
+  user: 'user',
+  password: 'password',
+  database: 'credo',
+})
+
+const db = drizzle(pool)
+
+const agent = new Agent({
+  config: { /* ... */ },
+  modules: {
+    drizzleStorage: new DrizzleStorageModule({
+      connection: db,
+    }),
+  },
+  dependencies: agentDependencies,
+})
+```
+
+<Info>
+Drizzle Storage supports cursor-based pagination (`supportsCursorPagination: true`) which is more efficient for large datasets than offset-based pagination.
+</Info>
+
+## Storage Operations
+
+### Querying Records
+
+Credo provides a powerful query system:
+
+#### Simple Queries
+
+```typescript
+import { DidRepository } from '@credo-ts/core'
+
+const didRepository = agent.context.resolve(DidRepository)
+
+// Query by single tag
+const dids = await didRepository.findByQuery(agent.context, {
+  method: 'key',
+})
+
+// Query by multiple tags
+const filteredDids = await didRepository.findByQuery(agent.context, {
+  method: 'peer',
+  role: 'created',
+})
+```
+
+#### Advanced Queries
+
+```typescript
+// AND query
+const dids = await didRepository.findByQuery(agent.context, {
+  $and: [
+    { method: 'key' },
+    { role: 'created' },
+  ],
+})
+
+// OR query
+const dids = await didRepository.findByQuery(agent.context, {
+  $or: [
+    { method: 'key' },
+    { method: 'peer' },
+  ],
+})
+
+// NOT query
+const dids = await didRepository.findByQuery(agent.context, {
+  $not: {
+    method: 'web',
+  },
+})
+
+// Complex query
+const dids = await didRepository.findByQuery(agent.context, {
+  $and: [
+    {
+      $or: [
+        { method: 'key' },
+        { method: 'peer' },
+      ],
+    },
+    { role: 'created' },
+  ],
+})
+```
+
+#### Pagination
+
+```typescript
+// Offset-based pagination (all backends)
+const page1 = await didRepository.findByQuery(
+  agent.context,
+  { method: 'key' },
+  { limit: 10, offset: 0 }
+)
+
+const page2 = await didRepository.findByQuery(
+  agent.context,
+  { method: 'key' },
+  { limit: 10, offset: 10 }
+)
+
+// Cursor-based pagination (Drizzle Storage only)
+const firstPage = await didRepository.findByQuery(
+  agent.context,
+  { method: 'key' },
+  { limit: 10, cursor: { after: null } }
+)
+
+// Get next page using last record's cursor
+const nextPage = await didRepository.findByQuery(
+  agent.context,
+  { method: 'key' },
+  { limit: 10, cursor: { after: lastRecordCursor } }
+)
+```
+
+Source: `packages/core/src/storage/StorageService.ts:24`
+
+### Record Locking
+
+Some storage backends support record locking to prevent concurrent updates:
+
+```typescript
+const didRepository = agent.context.resolve(DidRepository)
+
+// Check if locking is supported
+if (didRepository.supportsLocking(agent.context)) {
+  // Update with lock
+  const updatedRecord = await didRepository.updateByIdWithLock(
+    agent.context,
+    recordId,
+    async (record) => {
+      // Modify record
+      record.setTag('status', 'updated')
+      return record
+    }
+  )
+}
+```
+
+<Warning>
+Record locking can help prevent race conditions but may cause deadlocks if not used carefully. Minimize side effects in the update callback.
+</Warning>
+
+Source: `packages/core/src/storage/Repository.ts:70`
+
+## Storage Events
+
+Repositories emit events for storage operations:
+
+```typescript
+import { RepositoryEventTypes } from '@credo-ts/core'
+
+// Listen for record saved events
+agent.events.observable(RepositoryEventTypes.RecordSaved).subscribe({
+  next: (event) => {
+    console.log('Record saved:', event.payload.record)
+  },
+})
+
+// Listen for record updated events
+agent.events.observable(RepositoryEventTypes.RecordUpdated).subscribe({
+  next: (event) => {
+    console.log('Record updated:', event.payload.record)
+  },
+})
+
+// Listen for record deleted events
+agent.events.observable(RepositoryEventTypes.RecordDeleted).subscribe({
+  next: (event) => {
+    console.log('Record deleted:', event.payload.record)
+  },
+})
+```
+
+Source: `packages/core/src/storage/Repository.ts:45`
+
+## Storage Migration
+
+Credo includes a storage migration system for upgrading between versions:
+
+### Automatic Migration
+
+```typescript
+const agent = new Agent({
+  config: {
+    autoUpdateStorageOnStartup: true, // Enable automatic migration
+  },
+  // ... modules and dependencies
+})
+
+await agent.initialize()
+// Storage is automatically migrated if needed
+```
+
+### Manual Migration
+
+```typescript
+import { UpdateAssistant } from '@credo-ts/core'
+
+const agent = new Agent({
+  config: {
+    autoUpdateStorageOnStartup: false,
+  },
+  // ... modules and dependencies
+})
+
+await agent.initialize() // May throw if storage is outdated
+
+// Or manually migrate:
+const updateAssistant = new UpdateAssistant(agent)
+await updateAssistant.initialize()
+
+const isUpToDate = await updateAssistant.isUpToDate()
+if (!isUpToDate) {
+  await updateAssistant.update()
+}
+```
+
+<Warning>
+Always backup your storage before performing migrations. Test migrations in a development environment first.
+</Warning>
+
+Source: `packages/core/src/agent/Agent.ts:88`
+
+## Caching
+
+Credo includes a caching layer for improved performance:
+
+```typescript
+import { CacheModule, SingleContextStorageLruCache } from '@credo-ts/core'
+
+const agent = new Agent({
+  modules: {
+    // CacheModule is registered by default with 500 item limit
+    cache: new CacheModule({
+      cache: new SingleContextStorageLruCache({ limit: 1000 }),
+    }),
+  },
+})
+```
+
+### Redis Cache
+
+For distributed systems, use the Redis cache:
+
+**Package:** `@credo-ts/redis-cache`
+
+```typescript
+import { RedisCache } from '@credo-ts/redis-cache'
+import { createClient } from 'redis'
+
+const redisClient = createClient({ url: 'redis://localhost:6379' })
+await redisClient.connect()
+
+const agent = new Agent({
+  modules: {
+    cache: new CacheModule({
+      cache: new RedisCache(redisClient, { prefix: 'credo:' }),
+    }),
+  },
+})
+```
+
+## Multi-Tenancy
+
+Multi-tenancy allows multiple isolated agent contexts sharing the same infrastructure:
+
+```typescript
+import { TenantsModule } from '@credo-ts/tenants'
+import { AskarModule } from '@credo-ts/askar'
+import { ariesAskar } from '@hyperledger/aries-askar-nodejs'
+
+const agent = new Agent({
+  config: { /* ... */ },
+  modules: {
+    tenants: new TenantsModule(),
+    askar: new AskarModule({
+      ariesAskar,
+      multiWalletDatabasePath: './tenants',
+      multiWalletDatabaseScheme: 'MultiWalletSingleTable',
+    }),
+  },
+  dependencies: agentDependencies,
+})
+
+await agent.initialize()
+
+// Create a tenant
+const tenant = await agent.modules.tenants.createTenant({
+  config: {
+    label: 'Tenant 1',
+  },
+})
+
+// Get tenant agent context
+const tenantContext = await agent.modules.tenants.getTenantAgent(tenant.id)
+
+// Use tenant context for operations
+await tenantContext.dids.create({ method: 'key' })
+```
+
+<Info>
+Each tenant has its own isolated storage, ensuring complete data separation while sharing the same agent configuration and modules.
+</Info>
+
+## Custom Records
+
+You can create custom record types:
+
+```typescript
+import { BaseRecord, TagsBase } from '@credo-ts/core'
+
+interface CustomRecordTags extends TagsBase {
+  category: string
+  status: string
+}
+
+class CustomRecord extends BaseRecord<CustomRecordTags> {
+  public static readonly type = 'CustomRecord'
+  public readonly type = CustomRecord.type
+  
+  public data: string
+  
+  public constructor(props: { id?: string; data: string; category: string; status: string }) {
+    super()
+    
+    if (props.id) this.id = props.id
+    this.data = props.data
+    this._tags = {
+      category: props.category,
+      status: props.status,
+    }
+  }
+  
+  public getTags() {
+    return this._tags
+  }
+}
+
+// Create repository
+import { Repository, StorageService, EventEmitter, injectable } from '@credo-ts/core'
+
+@injectable()
+class CustomRecordRepository extends Repository<CustomRecord> {
+  public constructor(
+    storageService: StorageService<CustomRecord>,
+    eventEmitter: EventEmitter
+  ) {
+    super(CustomRecord, storageService, eventEmitter)
+  }
+}
+
+// Use the repository
+const repository = agent.context.resolve(CustomRecordRepository)
+const record = new CustomRecord({
+  data: 'example',
+  category: 'test',
+  status: 'active',
+})
+
+await repository.save(agent.context, record)
+```
+
+## Best Practices
+
+<Info>
+**Storage Backend Selection:**
+- Use Askar for production deployments (recommended)
+- Use Drizzle Storage if you need custom SQL queries or cursor pagination
+- Always use encrypted storage for production
+- Consider PostgreSQL for high-scale deployments
+
+**Query Performance:**
+- Index frequently queried tags
+- Use pagination for large result sets
+- Prefer cursor-based pagination for very large datasets
+- Cache frequently accessed records
+
+**Data Management:**
+- Implement proper backup strategies
+- Test storage migrations before production deployment
+- Monitor storage size and performance
+- Clean up old records periodically
+
+**Multi-Tenancy:**
+- Use multi-wallet support for tenant isolation
+- Consider PostgreSQL's database-per-tenant for strong isolation
+- Monitor per-tenant resource usage
+- Implement tenant lifecycle management
+</Info>
+
+## Storage Backend Comparison
+
+| Feature | Askar | Drizzle Storage |
+|---------|-------|----------------|
+| **Encryption** | ✅ Built-in | ⚠️ Database-level |
+| **SQLite** | ✅ Yes | ✅ Yes |
+| **PostgreSQL** | ✅ Yes | ✅ Yes |
+| **MySQL** | ❌ No | ✅ Yes |
+| **React Native** | ✅ Yes | ⚠️ Limited |
+| **Multi-tenancy** | ✅ Optimized | ✅ Supported |
+| **Cursor Pagination** | ❌ No | ✅ Yes |
+| **Record Locking** | ❌ No | ✅ Yes |
+| **Performance** | ✅ Optimized | ✅ Good |
+| **Maturity** | ✅ Production | ✅ Stable |
+
+## Related Topics
+
+- [Agent](/concepts/agent) - Learn about agent architecture
+- [Modules](/concepts/modules) - Understanding storage modules
+- [DID Methods](/concepts/did-methods) - DID storage
+- [Verifiable Credentials](/concepts/verifiable-credentials) - Credential storage

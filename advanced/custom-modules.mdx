@@ -1,0 +1,260 @@
+---
+title: "Creating Custom Modules"
+description: "Learn how to extend Credo by creating custom modules with lifecycle hooks and dependency injection"
+---
+
+## Overview
+
+Modules are the primary way to extend Credo's functionality. They provide a structured way to register services, manage dependencies, and hook into the agent's lifecycle.
+
+## Module Interface
+
+Every module must implement the `Module` interface:
+
+```typescript
+import type { Module, DependencyManager } from '@credo-ts/core'
+
+export interface Module {
+  api?: Constructor<unknown>
+  register(dependencyManager: DependencyManager): void
+  initialize?(agentContext: AgentContext): Promise<void>
+  shutdown?(agentContext: AgentContext): Promise<void>
+  onInitializeContext?(agentContext: AgentContext): Promise<void>
+  onProvisionContext?(agentContext: AgentContext): Promise<void>
+  onCloseContext?(agentContext: AgentContext): Promise<void>
+  onDeleteContext?(agentContext: AgentContext): Promise<void>
+  updates?: Update[]
+}
+```
+
+## Creating a Basic Module
+
+Here's a simple example of a custom module:
+
+```typescript
+import { Module, DependencyManager, injectable } from '@credo-ts/core'
+
+// Your service implementation
+@injectable()
+export class MyCustomService {
+  constructor() {
+    // Initialize your service
+  }
+
+  async doSomething() {
+    // Your logic here
+  }
+}
+
+// Your module
+export class MyCustomModule implements Module {
+  register(dependencyManager: DependencyManager) {
+    // Register your services with the dependency container
+    dependencyManager.registerSingleton(MyCustomService)
+  }
+}
+```
+
+## Module with API
+
+For modules that expose a public API, use the `api` property:
+
+```typescript
+import { Module, DependencyManager, AgentContext } from '@credo-ts/core'
+
+@injectable()
+export class MyCustomApi {
+  private agentContext: AgentContext
+  private myService: MyCustomService
+
+  constructor(agentContext: AgentContext, myService: MyCustomService) {
+    this.agentContext = agentContext
+    this.myService = myService
+  }
+
+  async performAction() {
+    return this.myService.doSomething()
+  }
+}
+
+export class MyCustomModule implements Module {
+  // Expose the API
+  public api = MyCustomApi
+
+  register(dependencyManager: DependencyManager) {
+    dependencyManager.registerSingleton(MyCustomService)
+  }
+}
+```
+
+Access the API through the agent:
+
+```typescript
+const result = await agent.modules.myCustom.performAction()
+```
+
+## Lifecycle Hooks
+
+### initialize
+
+Called once on agent startup with the root context. Use for global setup:
+
+```typescript
+export class MyCustomModule implements Module {
+  register(dependencyManager: DependencyManager) {
+    dependencyManager.registerSingleton(MyCustomService)
+  }
+
+  async initialize(agentContext: AgentContext) {
+    // Connect to external services
+    const service = agentContext.dependencyManager.resolve(MyCustomService)
+    await service.connectToExternalLedger()
+  }
+}
+```
+
+### shutdown
+
+Called once on agent shutdown. Clean up global resources:
+
+```typescript
+async shutdown(agentContext: AgentContext) {
+  const service = agentContext.dependencyManager.resolve(MyCustomService)
+  await service.disconnectFromExternalLedger()
+}
+```
+
+### onInitializeContext
+
+Called for every agent context initialization:
+
+```typescript
+async onInitializeContext(agentContext: AgentContext) {
+  // Set up context-specific resources
+  const service = agentContext.dependencyManager.resolve(MyCustomService)
+  await service.loadContextData(agentContext)
+}
+```
+
+### onProvisionContext
+
+Called when a new agent context is provisioned (created for the first time):
+
+```typescript
+async onProvisionContext(agentContext: AgentContext) {
+  // Set up initial data for new context
+  const service = agentContext.dependencyManager.resolve(MyCustomService)
+  await service.createInitialRecords(agentContext)
+}
+```
+
+<Warning>
+The `onProvisionContext` hook is **not** called for the root agent context, as the framework cannot distinguish between provisioning and initializing an existing agent.
+</Warning>
+
+### onCloseContext
+
+Called when an agent context is closed:
+
+```typescript
+async onCloseContext(agentContext: AgentContext) {
+  // Clean up context resources (e.g., database sessions)
+  const service = agentContext.dependencyManager.resolve(MyCustomService)
+  await service.closeConnections(agentContext)
+}
+```
+
+### onDeleteContext
+
+Called when an agent context is deleted:
+
+```typescript
+async onDeleteContext(agentContext: AgentContext) {
+  // Delete all data associated with this context
+  const service = agentContext.dependencyManager.resolve(MyCustomService)
+  await service.deleteAllData(agentContext)
+}
+```
+
+## Complete Example: Cache Module
+
+Here's a real example from Credo's core:
+
+```typescript
+import type { DependencyManager, Module } from '@credo-ts/core'
+import { CachedStorageService } from './CachedStorageService'
+import { CacheModuleConfig } from './CacheModuleConfig'
+import { SingleContextLruCacheRepository } from './singleContextLruCache'
+
+export class CacheModule implements Module {
+  public readonly config: CacheModuleConfig
+
+  constructor(config: CacheModuleOptions) {
+    this.config = new CacheModuleConfig(config)
+  }
+
+  register(dependencyManager: DependencyManager) {
+    // Register config
+    dependencyManager.registerInstance(CacheModuleConfig, this.config)
+
+    // Register storage service override
+    if (this.config.useCachedStorageService) {
+      dependencyManager.registerSingleton(CachedStorageService)
+    }
+
+    // Register cache-specific repository
+    if (this.config.cache instanceof SingleContextStorageLruCache) {
+      dependencyManager.registerSingleton(SingleContextLruCacheRepository)
+    }
+  }
+}
+```
+
+## Registering Your Module
+
+Add your module to the agent configuration:
+
+```typescript
+import { Agent } from '@credo-ts/core'
+import { MyCustomModule } from './MyCustomModule'
+
+const agent = new Agent({
+  config: {
+    label: 'My Agent',
+    walletConfig: {
+      id: 'my-agent',
+      key: 'my-secret-key',
+    },
+  },
+  modules: {
+    myCustom: new MyCustomModule(),
+  },
+})
+
+await agent.initialize()
+```
+
+## Best Practices
+
+1. **Use lifecycle hooks appropriately**: Use `initialize/shutdown` for global resources and `onInitializeContext/onCloseContext` for context-specific resources
+
+2. **Register dependencies in `register()`**: All dependency registration should happen in the `register()` method
+
+3. **Make services injectable**: Use the `@injectable()` decorator on all services
+
+4. **Clean up resources**: Always implement cleanup in `shutdown`, `onCloseContext`, and `onDeleteContext` hooks
+
+5. **Handle multi-tenancy**: If your module supports multi-tenancy, ensure proper context isolation
+
+6. **Provide storage migrations**: If your module stores data, implement [storage migrations](/advanced/storage-migration) using the `updates` property
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Dependency Injection" icon="syringe" href="/advanced/dependency-injection">
+    Learn about the DependencyManager and injection patterns
+  </Card>
+  <Card title="Storage Migration" icon="database" href="/advanced/storage-migration">
+    Add update scripts to migrate module data
+  </Card>
+</CardGroup>

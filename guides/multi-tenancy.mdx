@@ -1,0 +1,503 @@
+---
+title: Multi-Tenancy
+description: Set up multi-tenant agents with isolated storage and contexts using @credo-ts/tenants
+---
+
+Multi-tenancy allows a single Credo agent instance to manage multiple isolated tenants, each with their own wallet, storage, and configuration.
+
+## Overview
+
+Multi-tenancy is useful for:
+- **SaaS platforms** - One agent serving multiple customers
+- **Enterprise deployments** - Separate contexts for departments or users
+- **Mediator services** - Managing multiple edge agents
+- **Wallet-as-a-Service** - Providing wallet infrastructure
+
+Each tenant has:
+- Isolated storage and wallet
+- Independent configuration
+- Separate DIDs and credentials
+- Own connection records
+
+## Installation
+
+```bash
+npm install @credo-ts/tenants
+```
+
+## Basic Setup
+
+Create a root agent with the TenantsModule:
+
+```typescript
+import { Agent } from '@credo-ts/core'
+import { TenantsModule } from '@credo-ts/tenants'
+import { AskarModule } from '@credo-ts/askar'
+import { agentDependencies } from '@credo-ts/node'
+import { askar } from '@openwallet-foundation/askar-nodejs'
+
+const rootAgent = new Agent({
+  config: {
+    logger: new ConsoleLogger(LogLevel.info),
+  },
+  dependencies: agentDependencies,
+  modules: {
+    // Root storage
+    askar: new AskarModule({
+      askar,
+      store: {
+        id: 'root-agent',
+        key: 'root-agent-key',
+      },
+    }),
+    // Enable multi-tenancy
+    tenants: new TenantsModule(),
+  },
+})
+
+await rootAgent.initialize()
+```
+
+## Creating Tenants
+
+<Steps>
+
+### Create a Tenant
+
+Create a new tenant with isolated storage:
+
+```typescript
+const tenantRecord = await rootAgent.modules.tenants.createTenant({
+  config: {
+    label: 'Alice Tenant',
+  },
+})
+
+console.log('Tenant ID:', tenantRecord.id)
+console.log('Tenant Label:', tenantRecord.config.label)
+```
+
+### Get a Tenant Agent
+
+Access the tenant's agent instance:
+
+```typescript
+const tenantAgent = await rootAgent.modules.tenants.getTenantAgent({
+  tenantId: tenantRecord.id,
+})
+
+// Use the tenant agent like a normal agent
+const connections = await tenantAgent.connections.getAll()
+
+// Always end the session when done
+await tenantAgent.endSession()
+```
+
+### Use withTenantAgent
+
+Automatic session management:
+
+```typescript
+await rootAgent.modules.tenants.withTenantAgent(
+  { tenantId: tenantRecord.id },
+  async (tenantAgent) => {
+    // Work with the tenant agent
+    const invitation = await tenantAgent.oob.createInvitation()
+    return invitation
+  }
+)
+// Session automatically ended
+```
+
+</Steps>
+
+## Tenant Configuration
+
+Configure individual tenants:
+
+```typescript
+const tenantRecord = await rootAgent.modules.tenants.createTenant({
+  config: {
+    label: 'Corporate Tenant',
+    // Tenant-specific logger level
+    logger: new ConsoleLogger(LogLevel.debug),
+  },
+})
+```
+
+## Managing Tenants
+
+### Get Tenant by ID
+
+```typescript
+const tenant = await rootAgent.modules.tenants.getTenantById(tenantId)
+console.log('Tenant:', tenant.config.label)
+```
+
+### Find Tenants by Label
+
+```typescript
+const tenants = await rootAgent.modules.tenants.findTenantsByLabel('Alice')
+```
+
+### Get All Tenants
+
+```typescript
+const allTenants = await rootAgent.modules.tenants.getAllTenants()
+console.log('Total tenants:', allTenants.length)
+```
+
+### Query Tenants
+
+```typescript
+const tenants = await rootAgent.modules.tenants.findTenantsByQuery(
+  {
+    config: {
+      label: 'Corporate Tenant',
+    },
+  },
+  {
+    limit: 10,
+  }
+)
+```
+
+### Update Tenant
+
+```typescript
+const tenant = await rootAgent.modules.tenants.getTenantById(tenantId)
+
+tenant.config.label = 'Updated Label'
+
+await rootAgent.modules.tenants.updateTenant(tenant)
+```
+
+### Delete Tenant
+
+```typescript
+await rootAgent.modules.tenants.deleteTenantById(tenantId)
+```
+
+<Warning>
+Deleting a tenant permanently removes all its data, including credentials, connections, and DIDs.
+</Warning>
+
+## Tenant Agent Usage
+
+Once you have a tenant agent, use it like any other Credo agent:
+
+### DIDComm Operations
+
+```typescript
+await rootAgent.modules.tenants.withTenantAgent(
+  { tenantId: tenantRecord.id },
+  async (tenantAgent) => {
+    // Create connection invitation
+    const invitation = await tenantAgent.didcomm.oob.createInvitation()
+
+    // Accept credential offer
+    await tenantAgent.didcomm.credentials.acceptOffer({
+      credentialExchangeRecordId: credentialRecord.id,
+    })
+
+    // Request proof
+    await tenantAgent.didcomm.proofs.requestProof({
+      connectionId: connectionRecord.id,
+      protocolVersion: 'v2',
+      proofFormats: { /* ... */ },
+    })
+  }
+)
+```
+
+### OpenID4VC Operations
+
+```typescript
+await rootAgent.modules.tenants.withTenantAgent(
+  { tenantId: tenantRecord.id },
+  async (tenantAgent) => {
+    // Resolve credential offer
+    const offer = await tenantAgent.openid4vc.holder.resolveCredentialOffer(
+      credentialOfferUri
+    )
+
+    // Request credentials
+    const credentials = await tenantAgent.openid4vc.holder.requestCredentials({
+      resolvedCredentialOffer: offer,
+      credentialConfigurationIds: ['UniversityDegree'],
+      // ...
+    })
+  }
+)
+```
+
+### AnonCreds Operations
+
+```typescript
+await rootAgent.modules.tenants.withTenantAgent(
+  { tenantId: tenantRecord.id },
+  async (tenantAgent) => {
+    // Create link secret (once per tenant)
+    await tenantAgent.modules.anoncreds.createLinkSecret()
+
+    // Get credentials
+    const credentials = await tenantAgent.modules.anoncreds.getCredentials()
+  }
+)
+```
+
+## Tenant Modules Configuration
+
+Share module configuration across all tenants:
+
+```typescript
+import { DidCommModule } from '@credo-ts/didcomm'
+import { AnonCredsModule } from '@credo-ts/anoncreds'
+
+const rootAgent = new Agent({
+  config: {},
+  dependencies: agentDependencies,
+  modules: {
+    askar: new AskarModule({
+      askar,
+      store: { id: 'root', key: 'root-key' },
+    }),
+    tenants: new TenantsModule(),
+    // These modules are available to all tenants
+    didcomm: new DidCommModule({
+      endpoints: ['http://localhost:3000'],
+    }),
+    anoncreds: new AnonCredsModule({
+      registries: [new IndyVdrAnonCredsRegistry()],
+      anoncreds,
+    }),
+  },
+})
+```
+
+All tenants inherit the module configuration but maintain isolated data.
+
+## Storage Updates
+
+### Check for Outdated Storage
+
+```typescript
+const outdatedTenants = await rootAgent.modules.tenants.getTenantsWithOutdatedStorage()
+
+for (const tenant of outdatedTenants) {
+  console.log(`Tenant ${tenant.id} needs storage update`)
+}
+```
+
+### Update Tenant Storage
+
+```typescript
+await rootAgent.modules.tenants.updateTenantStorage({
+  tenantId: tenantRecord.id,
+  updateOptions: {
+    // Update options
+  },
+})
+```
+
+### Auto-Update on Startup
+
+Enable automatic storage updates:
+
+```typescript
+const tenantRecord = await rootAgent.modules.tenants.createTenant({
+  config: {
+    label: 'Alice',
+    autoUpdateStorageOnStartup: true,
+  },
+})
+```
+
+## Session Management
+
+### Manual Session Control
+
+```typescript
+const tenantAgent = await rootAgent.modules.tenants.getTenantAgent({
+  tenantId: tenantRecord.id,
+})
+
+try {
+  // Perform operations
+  const connections = await tenantAgent.didcomm.connections.getAll()
+} finally {
+  // Always end the session
+  await tenantAgent.endSession()
+}
+```
+
+### Automatic Session Management
+
+```typescript
+// Preferred: automatic session cleanup
+const result = await rootAgent.modules.tenants.withTenantAgent(
+  { tenantId: tenantRecord.id },
+  async (tenantAgent) => {
+    return await tenantAgent.didcomm.connections.getAll()
+  }
+)
+```
+
+<Note>
+Always end tenant sessions to free resources. Use `withTenantAgent` for automatic cleanup.
+</Note>
+
+## Complete Example
+
+Here's a complete multi-tenant setup:
+
+```typescript
+import { Agent, ConsoleLogger, LogLevel } from '@credo-ts/core'
+import { TenantsModule } from '@credo-ts/tenants'
+import { AskarModule } from '@credo-ts/askar'
+import { DidCommModule } from '@credo-ts/didcomm'
+import { AnonCredsModule } from '@credo-ts/anoncreds'
+import { agentDependencies } from '@credo-ts/node'
+import { askar } from '@openwallet-foundation/askar-nodejs'
+import { anoncreds } from '@hyperledger/anoncreds-nodejs'
+
+// Create root agent
+const rootAgent = new Agent({
+  config: {
+    label: 'Multi-Tenant Root Agent',
+    logger: new ConsoleLogger(LogLevel.info),
+  },
+  dependencies: agentDependencies,
+  modules: {
+    askar: new AskarModule({
+      askar,
+      store: {
+        id: 'root-agent',
+        key: 'root-secure-key',
+      },
+    }),
+    tenants: new TenantsModule(),
+    didcomm: new DidCommModule({
+      endpoints: ['http://localhost:3000'],
+    }),
+    anoncreds: new AnonCredsModule({
+      registries: [new IndyVdrAnonCredsRegistry()],
+      anoncreds,
+    }),
+  },
+})
+
+await rootAgent.initialize()
+console.log('Root agent initialized')
+
+// Create tenants
+const aliceTenant = await rootAgent.modules.tenants.createTenant({
+  config: { label: 'Alice Corporation' },
+})
+
+const bobTenant = await rootAgent.modules.tenants.createTenant({
+  config: { label: 'Bob Enterprises' },
+})
+
+console.log('Tenants created:', aliceTenant.id, bobTenant.id)
+
+// Work with Alice's tenant
+await rootAgent.modules.tenants.withTenantAgent(
+  { tenantId: aliceTenant.id },
+  async (aliceAgent) => {
+    const invitation = await aliceAgent.didcomm.oob.createInvitation()
+    console.log('Alice invitation:', invitation.outOfBandInvitation.toUrl({
+      domain: 'http://localhost:3000',
+    }))
+  }
+)
+
+// Work with Bob's tenant
+await rootAgent.modules.tenants.withTenantAgent(
+  { tenantId: bobTenant.id },
+  async (bobAgent) => {
+    await bobAgent.modules.anoncreds.createLinkSecret()
+    console.log('Bob link secret created')
+  }
+)
+
+// List all tenants
+const allTenants = await rootAgent.modules.tenants.getAllTenants()
+console.log('Total tenants:', allTenants.length)
+```
+
+## Routing and Mediation
+
+For multi-tenant mediator setups:
+
+```typescript
+import { DidCommMediatorModule } from '@credo-ts/didcomm'
+
+const rootAgent = new Agent({
+  config: {},
+  dependencies: agentDependencies,
+  modules: {
+    tenants: new TenantsModule(),
+    didcomm: new DidCommModule({
+      mediator: new DidCommMediatorModule({
+        autoAcceptMediationRequests: true,
+      }),
+    }),
+  },
+})
+```
+
+Each tenant can act as a mediation recipient to the root agent's mediator.
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Always End Sessions">
+    ```typescript
+    // Good: automatic cleanup
+    await rootAgent.modules.tenants.withTenantAgent({ tenantId }, async (agent) => {
+      await agent.didcomm.connections.getAll()
+    })
+
+    // Risky: manual cleanup required
+    const agent = await rootAgent.modules.tenants.getTenantAgent({ tenantId })
+    try {
+      await agent.didcomm.connections.getAll()
+    } finally {
+      await agent.endSession() // Don't forget!
+    }
+    ```
+  </Accordion>
+  <Accordion title="Isolate Tenant Data">
+    Never share credentials, connections, or DIDs between tenants. Each tenant should operate independently.
+  </Accordion>
+  <Accordion title="Use Consistent Naming">
+    Use meaningful labels and maintain a mapping between your application's user IDs and tenant IDs.
+  </Accordion>
+  <Accordion title="Monitor Storage">
+    Regularly check for outdated tenant storage:
+    ```typescript
+    const outdated = await rootAgent.modules.tenants.getTenantsWithOutdatedStorage()
+    for (const tenant of outdated) {
+      await rootAgent.modules.tenants.updateTenantStorage({ tenantId: tenant.id })
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Agent Config" icon="gear" href="./agent-config">
+    Configure tenant-specific settings
+  </Card>
+  <Card title="DIDComm" icon="comments" href="./didcomm">
+    Use DIDComm with multi-tenant agents
+  </Card>
+  <Card title="AnonCreds" icon="shield" href="./anoncreds">
+    Issue credentials per tenant
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/tenants">
+    Full Tenants API documentation
+  </Card>
+</CardGroup>

@@ -1,0 +1,249 @@
+---
+title: 'Module Registration and API Access'
+description: 'How to register and access module APIs in Credo'
+---
+
+## Module Registration
+
+Credo uses a modular architecture where functionality is provided through modules. Modules are registered when creating the agent.
+
+### Basic Module Registration
+
+```typescript
+import { Agent } from '@credo-ts/core'
+import { AskarModule } from '@credo-ts/askar'
+import { ariesAskar } from '@hyperledger/aries-askar-nodejs'
+import { DidCommModule } from '@credo-ts/didcomm'
+import { agentDependencies } from '@credo-ts/node'
+
+const agent = new Agent({
+  config: { /* ... */ },
+  dependencies: agentDependencies,
+  modules: {
+    askar: new AskarModule({
+      ariesAskar,
+    }),
+    didcomm: new DidCommModule({
+      // ... DIDComm configuration
+    }),
+  },
+})
+```
+
+## Default Modules
+
+These APIs are always available on the agent without explicit module registration:
+
+### dids
+
+DID operations (resolve, create, update, deactivate).
+
+```typescript
+const { didDocument } = await agent.dids.create({
+  method: 'key',
+  options: { keyType: KeyType.Ed25519 },
+})
+```
+
+**Type:** `DidsApi`
+
+### w3cCredentials
+
+W3C Verifiable Credentials 1.1 operations.
+
+```typescript
+const signedCredential = await agent.w3cCredentials.signCredential({
+  format: ClaimFormat.JwtVc,
+  credential: { /* ... */ },
+})
+```
+
+**Type:** `W3cCredentialsApi`
+
+### w3cV2Credentials
+
+W3C Verifiable Credentials 2.0 operations.
+
+```typescript
+const credential = await agent.w3cV2Credentials.sign({ /* ... */ })
+```
+
+**Type:** `W3cV2CredentialsApi`
+
+### sdJwtVc
+
+SD-JWT Verifiable Credentials operations.
+
+```typescript
+const sdJwt = await agent.sdJwtVc.sign({
+  holder: { method: 'did', didUrl: holderDid },
+  payload: { vct: 'https://example.com/credential', ... },
+})
+```
+
+**Type:** `SdJwtVcApi`
+
+### mdoc
+
+Mobile document (mdoc/ISO 18013-5) operations.
+
+```typescript
+const mdoc = await agent.mdoc.sign({
+  docType: 'org.iso.18013.5.1.mDL',
+  issuerCertificate: certificate,
+  validityInfo: { /* ... */ },
+})
+```
+
+**Type:** `MdocApi`
+
+### x509
+
+X.509 certificate operations.
+
+```typescript
+const certificate = await agent.x509.createSelfSigned({ /* ... */ })
+```
+
+**Type:** `X509Api`
+
+### kms
+
+Key Management System operations.
+
+```typescript
+const key = await agent.kms.create({ keyType: KeyType.Ed25519 })
+```
+
+**Type:** `KeyManagementApi`
+
+### genericRecords
+
+Generic storage for custom records.
+
+```typescript
+const record = new GenericRecord({ content: { data: 'custom' } })
+await agent.genericRecords.save(record)
+```
+
+**Type:** `GenericRecordsApi`
+
+## Optional Modules
+
+These modules must be explicitly registered and have special top-level access:
+
+### didcomm
+
+DIDComm protocol support (connections, credentials, proofs). Registered via `DidCommModule`.
+
+```typescript
+import { DidCommModule } from '@credo-ts/didcomm'
+
+const agent = new Agent({
+  // ...
+  modules: {
+    didcomm: new DidCommModule({
+      // ... configuration
+    }),
+  },
+})
+
+// Access DIDComm APIs
+const connection = await agent.didcomm.connections.getById(connectionId)
+const credential = await agent.didcomm.credentials.acceptOffer({ /* ... */ })
+const proof = await agent.didcomm.proofs.acceptRequest({ /* ... */ })
+```
+
+**Type:** `DidCommApi | undefined`
+
+### openid4vc
+
+OpenID for Verifiable Credentials support. Registered via `OpenId4VcModule`.
+
+```typescript
+import { OpenId4VcModule } from '@credo-ts/openid4vc'
+
+const agent = new Agent({
+  // ...
+  modules: {
+    openid4vc: new OpenId4VcModule({
+      issuer: { /* issuer config */ },
+      verifier: { /* verifier config */ },
+    }),
+  },
+})
+
+// Access OpenID4VC APIs
+const credential = await agent.openid4vc.holder.requestCredential({ /* ... */ })
+const offer = await agent.openid4vc.issuer.createOffer({ /* ... */ })
+const request = await agent.openid4vc.verifier.createRequest({ /* ... */ })
+```
+
+**Type:** `OpenId4VcApi | undefined`
+
+## Custom Modules
+
+Custom modules are accessed via the `agent.modules` property:
+
+```typescript
+import { AnonCredsModule } from '@credo-ts/anoncreds'
+
+const agent = new Agent({
+  // ...
+  modules: {
+    anoncreds: new AnonCredsModule({ /* ... */ }),
+  },
+})
+
+// Access via modules
+const linkSecretId = await agent.modules.anoncreds.createLinkSecret()
+const schema = await agent.modules.anoncreds.registerSchema({ /* ... */ })
+```
+
+## Module API Pattern
+
+All module APIs follow similar patterns:
+
+```typescript
+// Create/Sign operations
+const result = await agent.api.create({ /* options */ })
+const signed = await agent.api.sign({ /* options */ })
+
+// Store operations
+await agent.api.store(record)
+
+// Retrieve operations
+const record = await agent.api.getById(id)
+const records = await agent.api.getAll()
+const filtered = await agent.api.findAllByQuery(query)
+
+// Update operations
+await agent.api.update(record)
+
+// Delete operations
+await agent.api.deleteById(id)
+
+// Verify operations
+const result = await agent.api.verify({ /* options */ })
+```
+
+## TypeScript Types
+
+Module APIs are fully typed:
+
+```typescript
+import type { Agent } from '@credo-ts/core'
+import type { DidCommModule } from '@credo-ts/didcomm'
+import type { OpenId4VcModule } from '@credo-ts/openid4vc'
+
+type MyAgent = Agent<{
+  didcomm: DidCommModule
+  openid4vc: OpenId4VcModule
+}>
+
+// TypeScript knows these APIs are available
+const agent: MyAgent = /* ... */
+
+const connection = await agent.didcomm.connections.getById(id) // ✓
+const holder = agent.openid4vc.holder // ✓
+```

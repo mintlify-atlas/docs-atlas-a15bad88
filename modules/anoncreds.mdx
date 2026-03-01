@@ -1,0 +1,400 @@
+---
+title: '@credo-ts/anoncreds'
+description: Privacy-preserving AnonCreds credential format with zero-knowledge proofs
+---
+
+The AnonCreds module provides support for the AnonCreds (Anonymous Credentials) specification, enabling privacy-preserving verifiable credentials with advanced features like zero-knowledge proofs and selective disclosure.
+
+## Overview
+
+AnonCreds is a credential format that provides:
+
+- **Zero-knowledge proofs** - Prove attributes without revealing them
+- **Selective disclosure** - Share only required attributes
+- **Privacy-preserving** - Unlinkable presentations
+- **Predicate proofs** - Prove conditions (e.g., age > 18) without revealing exact values
+- **Revocation** - Support for credential revocation
+
+## Installation
+
+```bash
+npm install @credo-ts/anoncreds @credo-ts/core
+
+# Install native AnonCreds library
+npm install @hyperledger/anoncreds-nodejs
+```
+
+## Dependencies
+
+AnonCreds requires:
+
+- `@credo-ts/core` - Core functionality
+- `@credo-ts/didcomm` - DIDComm protocols (automatically installed)
+- `@hyperledger/anoncreds-shared` - Native AnonCreds implementation
+- A registry module for ledger operations (e.g., `@credo-ts/indy-vdr`)
+
+## Registration
+
+```typescript
+import { Agent } from '@credo-ts/core'
+import { AnonCredsModule } from '@credo-ts/anoncreds'
+import { anoncreds } from '@hyperledger/anoncreds-nodejs'
+import { IndyVdrAnonCredsRegistry } from '@credo-ts/indy-vdr'
+import { indyVdr } from '@hyperledger/indy-vdr-nodejs'
+
+const agent = new Agent({
+  config: { /* ... */ },
+  dependencies: agentDependencies,
+  modules: {
+    anoncreds: new AnonCredsModule({
+      // AnonCreds implementation
+      anoncreds,
+      
+      // Registry for reading/writing to ledger
+      registries: [indyVdrAnonCredsRegistry],
+    }),
+  },
+})
+
+await agent.initialize()
+```
+
+## Configuration Options
+
+```typescript
+interface AnonCredsModuleConfigOptions {
+  // Native AnonCreds library instance
+  anoncreds: AnonCreds
+  
+  // Registries for ledger operations
+  registries: AnonCredsRegistry[]
+}
+```
+
+## Core Concepts
+
+### Schema
+
+Defines the structure of a credential:
+
+```typescript
+const schema = await agent.modules.anoncreds.registerSchema({
+  schema: {
+    name: 'Employee Credential',
+    version: '1.0',
+    attrNames: ['employee_id', 'name', 'position', 'salary', 'hire_date'],
+    issuerId: issuerDid,
+  },
+  options: {
+    // Registry-specific options
+  },
+})
+
+console.log('Schema ID:', schema.schemaState.schemaId)
+```
+
+### Credential Definition
+
+Public key for issuing credentials based on a schema:
+
+```typescript
+const credentialDefinition = await agent.modules.anoncreds.registerCredentialDefinition({
+  credentialDefinition: {
+    tag: 'employee',
+    issuerId: issuerDid,
+    schemaId: schema.schemaState.schemaId,
+  },
+  options: {},
+})
+
+console.log('Credential Definition ID:', credentialDefinition.credentialDefinitionState.credentialDefinitionId)
+```
+
+### Revocation Registry
+
+For supporting credential revocation:
+
+```typescript
+const revocationRegistryDefinition = await agent.modules.anoncreds.registerRevocationRegistryDefinition({
+  revocationRegistryDefinition: {
+    credentialDefinitionId: credentialDefinition.credentialDefinitionState.credentialDefinitionId,
+    issuerId: issuerDid,
+    tag: 'default',
+    maximumCredentialNumber: 100,
+  },
+  options: {},
+})
+```
+
+## Issuer Operations
+
+### Create Schema and Credential Definition
+
+```typescript
+// 1. Create and register schema
+const schema = await agent.modules.anoncreds.registerSchema({
+  schema: {
+    name: 'DriverLicense',
+    version: '1.0',
+    attrNames: ['name', 'date_of_birth', 'license_number', 'expiry_date'],
+    issuerId: issuerDid,
+  },
+  options: {},
+})
+
+// 2. Create and register credential definition  
+const credDef = await agent.modules.anoncreds.registerCredentialDefinition({
+  credentialDefinition: {
+    tag: 'latest',
+    issuerId: issuerDid,
+    schemaId: schema.schemaState.schemaId,
+  },
+  options: {},
+})
+```
+
+### Issue Credential (via DIDComm)
+
+AnonCreds credentials are typically issued through DIDComm protocols:
+
+```typescript
+import { AnonCredsCredentialFormatService } from '@credo-ts/anoncreds'
+
+// Offer credential to connection
+const credentialExchangeRecord = await agent.credentials.offerCredential({
+  connectionId: connection.id,
+  protocolVersion: 'v2',
+  credentialFormats: {
+    anoncreds: {
+      credentialDefinitionId: credDef.credentialDefinitionState.credentialDefinitionId,
+      attributes: [
+        { name: 'name', value: 'Alice Smith' },
+        { name: 'date_of_birth', value: '1990-01-01' },
+        { name: 'license_number', value: 'D1234567' },
+        { name: 'expiry_date', value: '2030-12-31' },
+      ],
+    },
+  },
+})
+```
+
+## Holder Operations
+
+### Create Link Secret
+
+Required before receiving credentials:
+
+```typescript
+// Link secret is created automatically on first credential reception
+// Or create manually:
+await agent.modules.anoncreds.createLinkSecret({
+  linkSecretId: 'default',
+})
+```
+
+### Receive Credential
+
+```typescript
+// Listen for credential offers
+agent.events.on(CredentialEventTypes.CredentialStateChanged, async ({ payload }) => {
+  const record = payload.credentialRecord
+  
+  if (record.state === CredentialState.OfferReceived) {
+    // Accept the credential offer
+    await agent.credentials.acceptOffer({
+      credentialRecordId: record.id,
+    })
+  }
+  
+  if (record.state === CredentialState.Done) {
+    console.log('Credential received!')
+  }
+})
+```
+
+## Verifier Operations
+
+### Request Proof
+
+```typescript
+import { ProofAttributeInfo, ProofPredicateInfo } from '@credo-ts/anoncreds'
+
+// Request proof from holder
+const proofRequest = await agent.proofs.requestProof({
+  connectionId: connection.id,
+  protocolVersion: 'v2',
+  proofFormats: {
+    anoncreds: {
+      name: 'age-verification',
+      version: '1.0',
+      requested_attributes: {
+        name: {
+          name: 'name',
+          restrictions: [
+            {
+              cred_def_id: credentialDefinitionId,
+            },
+          ],
+        },
+      },
+      requested_predicates: {
+        age: {
+          name: 'date_of_birth',
+          p_type: '>=',
+          p_value: 18,
+          restrictions: [
+            {
+              cred_def_id: credentialDefinitionId,
+            },
+          ],
+        },
+      },
+    },
+  },
+})
+```
+
+### Verify Proof
+
+```typescript
+// Listen for proof presentation
+agent.events.on(ProofEventTypes.ProofStateChanged, async ({ payload }) => {
+  const record = payload.proofRecord
+  
+  if (record.state === ProofState.PresentationReceived) {
+    // Verify the proof
+    const isValid = await agent.proofs.verifyProof({
+      proofRecordId: record.id,
+    })
+    
+    if (isValid) {
+      console.log('Proof verified successfully!')
+      
+      // Access revealed attributes
+      const attributes = record.presentationMessage?.indyProof?.requested_proof?.revealed_attrs
+      console.log('Revealed attributes:', attributes)
+    }
+  }
+})
+```
+
+## Advanced Features
+
+### Predicate Proofs
+
+Prove conditions without revealing values:
+
+```typescript
+requested_predicates: {
+  age_check: {
+    name: 'age',
+    p_type: '>=',  // Can be: '>=', '>', '<=', '<'
+    p_value: 18,
+  },
+  salary_check: {
+    name: 'salary',
+    p_type: '>',
+    p_value: 50000,
+  },
+}
+```
+
+### Revocation
+
+```typescript
+// Issue revocable credential
+const credential = await agent.credentials.offerCredential({
+  connectionId: connection.id,
+  protocolVersion: 'v2',
+  credentialFormats: {
+    anoncreds: {
+      credentialDefinitionId,
+      attributes,
+      revocationRegistryDefinitionId,
+      revocationRegistryIndex: 1,
+    },
+  },
+})
+
+// Revoke credential
+await agent.modules.anoncreds.revokeCredential({
+  credentialRevocationId: '1',
+  revocationRegistryDefinitionId,
+})
+```
+
+### Non-Revocation Proofs
+
+Request proof that credential hasn't been revoked:
+
+```typescript
+proofFormats: {
+  anoncreds: {
+    name: 'proof-request',
+    version: '1.0',
+    requested_attributes: {
+      // ...
+    },
+    non_revoked: {
+      from: Math.floor(Date.now() / 1000),
+      to: Math.floor(Date.now() / 1000),
+    },
+  },
+}
+```
+
+## Registry Support
+
+The module supports multiple AnonCreds registries:
+
+### Indy VDR
+
+```typescript
+import { IndyVdrAnonCredsRegistry } from '@credo-ts/indy-vdr'
+
+registries: [new IndyVdrAnonCredsRegistry()]
+```
+
+### Cheqd
+
+```typescript
+import { CheqdAnonCredsRegistry } from '@credo-ts/cheqd'
+
+registries: [new CheqdAnonCredsRegistry()]
+```
+
+### Hedera
+
+```typescript
+import { HederaAnonCredsRegistry } from '@credo-ts/hedera'
+
+registries: [new HederaAnonCredsRegistry()]
+```
+
+## API Reference
+
+- `agent.modules.anoncreds.registerSchema()` - Register schema on ledger
+- `agent.modules.anoncreds.registerCredentialDefinition()` - Register credential definition
+- `agent.modules.anoncreds.registerRevocationRegistryDefinition()` - Register revocation registry
+- `agent.modules.anoncreds.createLinkSecret()` - Create link secret for holder
+- `agent.modules.anoncreds.revokeCredential()` - Revoke a credential
+
+## Integration with DIDComm
+
+AnonCreds credentials use DIDComm protocols for exchange:
+
+- Issue Credential Protocol v1/v2
+- Present Proof Protocol v1/v2
+
+See the [DIDComm module](/modules/didcomm) for more details on these protocols.
+
+## Source Code
+
+View the source code at:
+- [packages/anoncreds](https://github.com/openwallet-foundation/credo-ts/tree/main/packages/anoncreds)
+
+## Related Documentation
+
+- [AnonCreds Specification](https://hyperledger.github.io/anoncreds-spec/)
+- [Indy VDR Module](/modules/indy-vdr)
+- [DIDComm Module](/modules/didcomm)

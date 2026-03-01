@@ -1,0 +1,415 @@
+---
+title: 'OpenId4VcApi'
+description: 'OpenID for Verifiable Credentials'
+---
+
+## Overview
+
+The OpenId4VcApi provides support for OpenID for Verifiable Credentials (OpenID4VC), including OpenID4VCI (issuance) and OpenID4VP (presentation) protocols.
+
+```typescript
+import { OpenId4VcModule } from '@credo-ts/openid4vc'
+
+const agent = new Agent({
+  // ...
+  modules: {
+    openid4vc: new OpenId4VcModule({
+      issuer: { /* issuer config */ },
+      verifier: { /* verifier config */ },
+    }),
+  },
+})
+
+// Access APIs
+const holder = agent.openid4vc.holder
+const issuer = agent.openid4vc.issuer
+const verifier = agent.openid4vc.verifier
+```
+
+## Module Registration
+
+```typescript
+import { OpenId4VcModule } from '@credo-ts/openid4vc'
+import { Agent } from '@credo-ts/core'
+
+const agent = new Agent({
+  // ...
+  modules: {
+    openid4vc: new OpenId4VcModule({
+      issuer: {
+        baseUrl: 'https://issuer.example.com',
+        endpoints: {
+          credential: '/credential',
+          token: '/token',
+        },
+      },
+      verifier: {
+        baseUrl: 'https://verifier.example.com',
+        endpoints: {
+          authorization: '/authorize',
+        },
+      },
+    }),
+  },
+})
+
+await agent.initialize()
+```
+
+## Issuer API
+
+Available when issuer configuration is provided: `agent.openid4vc.issuer`
+
+### Creating Credential Offers
+
+```typescript
+const offer = await agent.openid4vc.issuer.createOffer({
+  credentials: [
+    {
+      format: 'jwt_vc_json',
+      credential: {
+        '@context': ['https://www.w3.org/2018/credentials/v1'],
+        type: ['VerifiableCredential', 'UniversityDegree'],
+        issuer: issuerDid,
+        issuanceDate: new Date().toISOString(),
+        credentialSubject: {
+          degree: {
+            type: 'BachelorDegree',
+            name: 'Bachelor of Science',
+          },
+        },
+      },
+    },
+  ],
+  preAuthorizedCodeFlowConfig: {
+    userPinRequired: false,
+  },
+})
+
+const offerUri = offer.credentialOfferUri
+// Share offerUri with holder (e.g., via QR code)
+```
+
+### Handling Credential Requests
+
+Credential requests are automatically handled by the agent when configured with appropriate routes.
+
+```typescript
+// Credential endpoint handler (typically in your server)
+app.post('/credential', async (req, res) => {
+  // Request is automatically processed by OpenID4VC module
+  // based on configured routes
+})
+```
+
+## Holder API
+
+Always available: `agent.openid4vc.holder`
+
+### Requesting Credentials
+
+```typescript
+// Resolve credential offer
+const resolved = await agent.openid4vc.holder.resolveCredentialOffer(
+  credentialOfferUri
+)
+
+console.log('Issuer:', resolved.credentialOfferPayload.credential_issuer)
+console.log('Credentials:', resolved.offeredCredentials)
+
+// Request credentials
+const credentials = await agent.openid4vc.holder.requestCredentials({
+  resolvedCredentialOffer: resolved,
+  credentialsToRequest: resolved.offeredCredentials.map(c => c.id),
+})
+
+console.log('Received credentials:', credentials)
+```
+
+### Accepting Authorization Requests (Presentation)
+
+```typescript
+// Resolve authorization request from verifier
+const resolved = await agent.openid4vc.holder.resolveAuthorizationRequest(
+  authorizationRequestUri
+)
+
+// Get matching credentials
+const credentials = await agent.openid4vc.holder.getCredentialsForRequest({
+  resolvedAuthorizationRequest: resolved,
+})
+
+// Select and present credentials
+const response = await agent.openid4vc.holder.acceptRequest({
+  resolvedAuthorizationRequest: resolved,
+  credentials: [
+    {
+      credentialId: credentials[0].id,
+      // Optional: specify which claims to disclose
+      disclosureFrame: { name: true, age: true },
+    },
+  ],
+})
+
+console.log('Presentation sent')
+```
+
+## Verifier API
+
+Available when verifier configuration is provided: `agent.openid4vc.verifier`
+
+### Creating Authorization Requests
+
+```typescript
+const { authorizationRequest, verificationSession } = 
+  await agent.openid4vc.verifier.createRequest({
+    requestSigner: {
+      method: 'did',
+      didUrl: verifierDid,
+    },
+    presentationExchange: {
+      definition: {
+        id: 'identity-verification',
+        input_descriptors: [
+          {
+            id: 'id_credential',
+            constraints: {
+              fields: [
+                {
+                  path: ['$.type'],
+                  filter: {
+                    type: 'array',
+                    contains: { const: 'IdentityCredential' },
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      },
+    },
+  })
+
+const authorizationRequestUri = authorizationRequest.authorizationRequestUri
+// Share with holder (e.g., via QR code)
+```
+
+### Verifying Responses
+
+```typescript
+const verification = await agent.openid4vc.verifier.verifyResponse({
+  authorizationResponse: receivedResponse,
+})
+
+if (verification.verified) {
+  console.log('Presentation verified')
+  console.log('Credentials:', verification.presentations)
+  console.log('Presentation submission:', verification.presentationSubmission)
+} else {
+  console.log('Verification failed:', verification.error)
+}
+```
+
+## Properties
+
+### issuer
+
+Issuer API instance. Only available if issuer configuration was provided.
+
+```typescript
+if (agent.openid4vc.issuer) {
+  const offer = await agent.openid4vc.issuer.createOffer({ /* ... */ })
+}
+```
+
+**Type:** `OpenId4VcIssuerApi | undefined`
+
+### verifier
+
+Verifier API instance. Only available if verifier configuration was provided.
+
+```typescript
+if (agent.openid4vc.verifier) {
+  const request = await agent.openid4vc.verifier.createRequest({ /* ... */ })
+}
+```
+
+**Type:** `OpenId4VcVerifierApi | undefined`
+
+### holder
+
+Holder API instance. Always available.
+
+```typescript
+const credentials = await agent.openid4vc.holder.requestCredentials({ /* ... */ })
+```
+
+**Type:** `OpenId4VcHolderApi`
+
+### config
+
+Module configuration.
+
+```typescript
+const config = agent.openid4vc.config
+```
+
+**Type:** `OpenId4VcModuleConfig`
+
+## Complete Example
+
+### Issuer Flow
+
+```typescript
+import { Agent } from '@credo-ts/core'
+import { OpenId4VcModule } from '@credo-ts/openid4vc'
+
+// Setup issuer agent
+const issuer = new Agent({
+  // ...
+  modules: {
+    openid4vc: new OpenId4VcModule({
+      issuer: {
+        baseUrl: 'https://issuer.example.com',
+      },
+    }),
+  },
+})
+
+await issuer.initialize()
+
+// Create credential offer
+const offer = await issuer.openid4vc.issuer.createOffer({
+  credentials: [
+    {
+      format: 'jwt_vc_json',
+      credential: {
+        '@context': ['https://www.w3.org/2018/credentials/v1'],
+        type: ['VerifiableCredential', 'EmployeeCredential'],
+        issuer: issuerDid,
+        issuanceDate: new Date().toISOString(),
+        credentialSubject: {
+          id: holderDid,
+          employeeId: 'E12345',
+          name: 'Alice Smith',
+          department: 'Engineering',
+        },
+      },
+    },
+  ],
+  preAuthorizedCodeFlowConfig: {
+    userPinRequired: false,
+  },
+})
+
+console.log('Share this offer:', offer.credentialOfferUri)
+```
+
+### Holder Flow
+
+```typescript
+import { Agent } from '@credo-ts/core'
+import { OpenId4VcModule } from '@credo-ts/openid4vc'
+
+// Setup holder agent
+const holder = new Agent({
+  // ...
+  modules: {
+    openid4vc: new OpenId4VcModule(),
+  },
+})
+
+await holder.initialize()
+
+// Receive credential
+const resolved = await holder.openid4vc.holder.resolveCredentialOffer(
+  credentialOfferUri
+)
+
+const credentials = await holder.openid4vc.holder.requestCredentials({
+  resolvedCredentialOffer: resolved,
+  credentialsToRequest: resolved.offeredCredentials.map(c => c.id),
+})
+
+console.log('Received credentials:', credentials)
+
+// Present credential
+const authResolved = await holder.openid4vc.holder.resolveAuthorizationRequest(
+  authorizationRequestUri
+)
+
+const matchingCreds = await holder.openid4vc.holder.getCredentialsForRequest({
+  resolvedAuthorizationRequest: authResolved,
+})
+
+const response = await holder.openid4vc.holder.acceptRequest({
+  resolvedAuthorizationRequest: authResolved,
+  credentials: matchingCreds.map(c => ({ credentialId: c.id })),
+})
+```
+
+### Verifier Flow
+
+```typescript
+import { Agent } from '@credo-ts/core'
+import { OpenId4VcModule } from '@credo-ts/openid4vc'
+
+// Setup verifier agent
+const verifier = new Agent({
+  // ...
+  modules: {
+    openid4vc: new OpenId4VcModule({
+      verifier: {
+        baseUrl: 'https://verifier.example.com',
+      },
+    }),
+  },
+})
+
+await verifier.initialize()
+
+// Request presentation
+const { authorizationRequest, verificationSession } = 
+  await verifier.openid4vc.verifier.createRequest({
+    requestSigner: {
+      method: 'did',
+      didUrl: verifierDid,
+    },
+    presentationExchange: {
+      definition: {
+        id: 'employee-verification',
+        input_descriptors: [
+          {
+            id: 'employee_credential',
+            constraints: {
+              fields: [
+                {
+                  path: ['$.type'],
+                  filter: {
+                    type: 'array',
+                    contains: { const: 'EmployeeCredential' },
+                  },
+                },
+                {
+                  path: ['$.credentialSubject.department'],
+                  filter: { const: 'Engineering' },
+                },
+              ],
+            },
+          },
+        ],
+      },
+    },
+  })
+
+console.log('Share this request:', authorizationRequest.authorizationRequestUri)
+
+// Verify response
+const verification = await verifier.openid4vc.verifier.verifyResponse({
+  authorizationResponse: receivedResponse,
+})
+
+if (verification.verified) {
+  console.log('Employee verified:', verification.presentations)
+}
+```

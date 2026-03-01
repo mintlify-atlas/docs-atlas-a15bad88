@@ -1,0 +1,325 @@
+---
+title: Installation
+description: Install Credo packages for your platform
+---
+
+# Installation
+
+Credo is distributed as multiple npm packages. This guide covers how to install and configure Credo for your platform.
+
+## Package overview
+
+Credo consists of a core package, platform-specific packages, and optional module packages:
+
+### Core packages
+
+<CardGroup cols={2}>
+  <Card title="@credo-ts/core" icon="box">
+    The main framework package (required)
+  </Card>
+  <Card title="@credo-ts/node" icon="node-js">
+    Node.js platform dependencies
+  </Card>
+  <Card title="@credo-ts/react-native" icon="mobile">
+    React Native platform dependencies
+  </Card>
+  <Card title="@credo-ts/askar" icon="database">
+    Secure storage implementation (required)
+  </Card>
+</CardGroup>
+
+### Module packages
+
+<CardGroup cols={2}>
+  <Card title="@credo-ts/openid4vc" icon="openid">
+    OpenID for Verifiable Credentials
+  </Card>
+  <Card title="@credo-ts/anoncreds" icon="shield">
+    AnonCreds credential format
+  </Card>
+  <Card title="@credo-ts/didcomm" icon="message">
+    DIDComm messaging protocol
+  </Card>
+  <Card title="@credo-ts/indy-vdr" icon="network">
+    Indy ledger integration
+  </Card>
+  <Card title="@credo-ts/cheqd" icon="c">
+    Cheqd DID method and AnonCreds
+  </Card>
+  <Card title="@credo-ts/hedera" icon="h">
+    Hedera DID method and AnonCreds
+  </Card>
+  <Card title="@credo-ts/tenants" icon="users">
+    Multi-tenant support
+  </Card>
+  <Card title="@credo-ts/action-menu" icon="bars">
+    Action menu protocol
+  </Card>
+  <Card title="@credo-ts/question-answer" icon="question">
+    Question-answer protocol
+  </Card>
+  <Card title="@credo-ts/drpc" icon="plug">
+    Distributed RPC
+  </Card>
+</CardGroup>
+
+## Node.js installation
+
+### Prerequisites
+
+<Info>
+  Node.js 20.19 or higher is required
+</Info>
+
+### Basic installation
+
+Install the core packages for a basic Node.js agent:
+
+<CodeGroup>
+```bash npm
+npm install @credo-ts/core @credo-ts/node @credo-ts/askar @openwallet-foundation/askar-nodejs
+```
+
+```bash yarn
+yarn add @credo-ts/core @credo-ts/node @credo-ts/askar @openwallet-foundation/askar-nodejs
+```
+
+```bash pnpm
+pnpm add @credo-ts/core @credo-ts/node @credo-ts/askar @openwallet-foundation/askar-nodejs
+```
+</CodeGroup>
+
+### With DIDComm support
+
+To enable DIDComm messaging, add the DIDComm module:
+
+<CodeGroup>
+```bash npm
+npm install @credo-ts/core @credo-ts/node @credo-ts/askar @credo-ts/didcomm @openwallet-foundation/askar-nodejs
+```
+
+```bash yarn
+yarn add @credo-ts/core @credo-ts/node @credo-ts/askar @credo-ts/didcomm @openwallet-foundation/askar-nodejs
+```
+
+```bash pnpm
+pnpm add @credo-ts/core @credo-ts/node @credo-ts/askar @credo-ts/didcomm @openwallet-foundation/askar-nodejs
+```
+</CodeGroup>
+
+### With AnonCreds support
+
+To work with AnonCreds credentials:
+
+<CodeGroup>
+```bash npm
+npm install @credo-ts/core @credo-ts/node @credo-ts/askar @credo-ts/anoncreds @openwallet-foundation/askar-nodejs @hyperledger/anoncreds-nodejs
+```
+
+```bash yarn
+yarn add @credo-ts/core @credo-ts/node @credo-ts/askar @credo-ts/anoncreds @openwallet-foundation/askar-nodejs @hyperledger/anoncreds-nodejs
+```
+
+```bash pnpm
+pnpm add @credo-ts/core @credo-ts/node @credo-ts/askar @credo-ts/anoncreds @openwallet-foundation/askar-nodejs @hyperledger/anoncreds-nodejs
+```
+</CodeGroup>
+
+### With OpenID4VC support
+
+To use OpenID for Verifiable Credentials:
+
+<CodeGroup>
+```bash npm
+npm install @credo-ts/core @credo-ts/node @credo-ts/askar @credo-ts/openid4vc @openwallet-foundation/askar-nodejs
+```
+
+```bash yarn
+yarn add @credo-ts/core @credo-ts/node @credo-ts/askar @credo-ts/openid4vc @openwallet-foundation/askar-nodejs
+```
+
+```bash pnpm
+pnpm add @credo-ts/core @credo-ts/node @credo-ts/askar @credo-ts/openid4vc @openwallet-foundation/askar-nodejs
+```
+</CodeGroup>
+
+## React Native installation
+
+### Prerequisites
+
+<Info>
+  React Native 0.71.4 or higher is required
+</Info>
+
+### Required dependencies
+
+Install the core packages for React Native:
+
+<CodeGroup>
+```bash npm
+npm install @credo-ts/core @credo-ts/react-native @credo-ts/askar react-native-fs react-native-get-random-values
+```
+
+```bash yarn
+yarn add @credo-ts/core @credo-ts/react-native @credo-ts/askar react-native-fs react-native-get-random-values
+```
+
+```bash pnpm
+pnpm add @credo-ts/core @credo-ts/react-native @credo-ts/askar react-native-fs react-native-get-random-values
+```
+</CodeGroup>
+
+### Platform-specific Askar
+
+For React Native, you need the platform-specific Askar package:
+
+<CodeGroup>
+```bash npm
+npm install @openwallet-foundation/askar-react-native
+```
+
+```bash yarn
+yarn add @openwallet-foundation/askar-react-native
+```
+
+```bash pnpm
+pnpm add @openwallet-foundation/askar-react-native
+```
+</CodeGroup>
+
+### Setup polyfills
+
+Add this to the top of your app entry file (e.g., `index.js`):
+
+```javascript index.js
+import 'react-native-get-random-values'
+```
+
+<Note>
+  The `react-native-get-random-values` polyfill must be imported before any Credo imports.
+</Note>
+
+## Storage options
+
+Credo requires a storage module for secure key and data management. The recommended option is Askar:
+
+<AccordionGroup>
+  <Accordion title="Askar (recommended)" icon="database">
+    Askar provides secure, encrypted storage for keys and data.
+
+    **For Node.js:**
+    ```bash
+    npm install @credo-ts/askar @openwallet-foundation/askar-nodejs
+    ```
+
+    **For React Native:**
+    ```bash
+    npm install @credo-ts/askar @openwallet-foundation/askar-react-native
+    ```
+
+    Configure in your agent:
+    ```typescript
+    import { AskarModule } from '@credo-ts/askar'
+    import { askar } from '@openwallet-foundation/askar-nodejs'
+
+    modules: {
+      askar: new AskarModule({
+        askar,
+        store: {
+          id: 'my-agent',
+          key: 'my-secret-key-must-be-at-least-32-characters-long',
+        },
+      }),
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Drizzle Storage (alternative)" icon="droplet">
+    An alternative storage implementation using Drizzle ORM.
+
+    ```bash
+    npm install @credo-ts/drizzle-storage
+    ```
+
+    <Warning>
+      Drizzle Storage is less mature than Askar. Use Askar for production applications.
+    </Warning>
+  </Accordion>
+</AccordionGroup>
+
+## Peer dependencies
+
+Some packages have peer dependencies that must be installed:
+
+### AnonCreds
+
+When using `@credo-ts/anoncreds`:
+
+```bash
+npm install @hyperledger/anoncreds-nodejs  # for Node.js
+npm install @hyperledger/anoncreds-react-native  # for React Native
+```
+
+### Askar
+
+When using `@credo-ts/askar`:
+
+```bash
+npm install @openwallet-foundation/askar-nodejs  # for Node.js
+npm install @openwallet-foundation/askar-react-native  # for React Native
+```
+
+### Indy VDR
+
+When using `@credo-ts/indy-vdr`:
+
+```bash
+npm install @hyperledger/indy-vdr-nodejs  # for Node.js
+npm install @hyperledger/indy-vdr-react-native  # for React Native
+```
+
+## TypeScript configuration
+
+Credo requires the following TypeScript compiler options:
+
+```json tsconfig.json
+{
+  "compilerOptions": {
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true
+  }
+}
+```
+
+<Note>
+  The `experimentalDecorators` and `emitDecoratorMetadata` options are required for dependency injection to work correctly.
+</Note>
+
+## Version compatibility
+
+All Credo packages should use the same version. For example:
+
+```json package.json
+{
+  "dependencies": {
+    "@credo-ts/core": "^0.6.2",
+    "@credo-ts/node": "^0.6.2",
+    "@credo-ts/askar": "^0.6.2",
+    "@credo-ts/anoncreds": "^0.6.2"
+  }
+}
+```
+
+<Warning>
+  Mixing different versions of Credo packages can lead to compatibility issues. Always use the same version for all `@credo-ts/*` packages.
+</Warning>
+
+## Next steps
+
+Now that you have Credo installed, follow the quickstart guide to create your first agent:
+
+<Card title="Quickstart" icon="rocket" href="/quickstart">
+  Build your first Credo agent
+</Card>

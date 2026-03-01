@@ -1,0 +1,448 @@
+---
+title: Multi-Tenant Setup
+description: Complete guide to setting up and managing multi-tenant agents in Credo
+---
+
+This guide demonstrates how to set up a multi-tenant agent architecture where a single agent instance manages multiple isolated tenants, each with their own wallet and credentials.
+
+## Understanding Multi-Tenancy
+
+Multi-tenancy in Credo allows you to:
+- Run multiple isolated agent instances within a single application
+- Each tenant has its own wallet, DIDs, and credentials
+- Share infrastructure and reduce resource overhead
+- Ideal for SaaS applications serving multiple organizations
+
+## Basic Multi-Tenant Setup
+
+<Steps>
+
+### Initialize the Root Agent
+
+Set up the root agent with the TenantsModule:
+
+```typescript
+import { Agent, CacheModule, InMemoryLruCache } from '@credo-ts/core'
+import { DidCommModule } from '@credo-ts/didcomm'
+import { TenantsModule } from '@credo-ts/tenants'
+import { AskarModule } from '@credo-ts/askar'
+import { agentDependencies } from '@credo-ts/node'
+import { askar } from '@openwallet-foundation/askar-nodejs'
+
+const rootAgent = new Agent({
+  config: {
+    label: 'Multi-Tenant Root Agent',
+  },
+  dependencies: agentDependencies,
+  modules: {
+    didcomm: new DidCommModule({
+      endpoints: ['http://localhost:3000'],
+      connections: {
+        autoAcceptConnections: true,
+      },
+    }),
+    // TenantsModule enables multi-tenancy
+    tenants: new TenantsModule(),
+    // Askar with storage disabled (tenants manage their own storage)
+    askar: new AskarModule({
+      askar,
+      enableStorage: false,
+      store: {
+        id: 'root-agent',
+        key: 'root-agent-key',
+      },
+    }),
+    // Cache for better performance
+    cache: new CacheModule({
+      cache: new InMemoryLruCache({ limit: 500 }),
+    }),
+  },
+})
+
+await rootAgent.initialize()
+console.log('✓ Root agent initialized')
+```
+
+### Create a Tenant
+
+Create isolated tenant instances:
+
+```typescript
+// Create first tenant
+const tenant1Record = await rootAgent.modules.tenants.createTenant({
+  config: {
+    label: 'Acme Corporation',
+  },
+})
+
+console.log('Tenant 1 created:', tenant1Record.id)
+
+// Create second tenant
+const tenant2Record = await rootAgent.modules.tenants.createTenant({
+  config: {
+    label: 'Globex Industries',
+  },
+})
+
+console.log('Tenant 2 created:', tenant2Record.id)
+```
+
+### Access a Tenant Agent
+
+Get a tenant agent instance to perform operations:
+
+```typescript
+// Get tenant agent
+const tenantAgent = await rootAgent.modules.tenants.getTenantAgent({
+  tenantId: tenant1Record.id,
+})
+
+console.log('Tenant agent label:', tenantAgent.config.label)
+// Output: 'Acme Corporation'
+
+// Create a DID for this tenant
+const didResult = await tenantAgent.dids.create({
+  method: 'key',
+})
+
+console.log('Tenant DID created:', didResult.didState.did)
+
+// Always end the session when done
+await tenantAgent.endSession()
+```
+
+### Use withTenantAgent Helper
+
+Automatic session management with cleanup:
+
+```typescript
+const result = await rootAgent.modules.tenants.withTenantAgent(
+  { tenantId: tenant1Record.id },
+  async (tenantAgent) => {
+    // Create a connection invitation
+    const outOfBand = await tenantAgent.didcomm.oob.createInvitation()
+    
+    return {
+      invitationUrl: outOfBand.outOfBandInvitation.toUrl({
+        domain: 'https://acme.example.com',
+      }),
+      outOfBandId: outOfBand.id,
+    }
+  }
+)
+
+console.log('Invitation created:', result.invitationUrl)
+// Session automatically closed after callback completes
+```
+
+</Steps>
+
+## Multi-Tenant Connections
+
+Establish connections between tenants:
+
+<Steps>
+
+### Create Connection Between Two Tenants
+
+```typescript
+// Tenant 1 creates an invitation
+const invitation = await rootAgent.modules.tenants.withTenantAgent(
+  { tenantId: tenant1Record.id },
+  async (tenant1Agent) => {
+    const outOfBand = await tenant1Agent.didcomm.oob.createInvitation({
+      label: 'Acme Corp Connection',
+    })
+    
+    return outOfBand.outOfBandInvitation.toUrl({
+      domain: 'https://acme.example.com',
+    })
+  }
+)
+
+console.log('Tenant 1 invitation:', invitation)
+
+// Tenant 2 accepts the invitation
+const connectionRecord = await rootAgent.modules.tenants.withTenantAgent(
+  { tenantId: tenant2Record.id },
+  async (tenant2Agent) => {
+    const { connectionRecord } = await tenant2Agent.didcomm.oob.receiveInvitationFromUrl(
+      invitation,
+      { label: 'Globex Industries' }
+    )
+    
+    if (!connectionRecord) {
+      throw new Error('No connection record created')
+    }
+    
+    // Wait for connection to complete
+    return await tenant2Agent.didcomm.connections.returnWhenIsConnected(
+      connectionRecord.id
+    )
+  }
+)
+
+console.log('✓ Connection established between tenants')
+```
+
+### Exchange Credentials Between Tenants
+
+```typescript
+// Tenant 1 issues a credential to Tenant 2
+await rootAgent.modules.tenants.withTenantAgent(
+  { tenantId: tenant1Record.id },
+  async (issuerAgent) => {
+    // Get the connection record
+    const connections = await issuerAgent.didcomm.connections.getAll()
+    const connection = connections[0]
+    
+    // Offer credential
+    await issuerAgent.didcomm.credentials.offerCredential({
+      connectionId: connection.id,
+      protocolVersion: 'v2',
+      credentialFormats: {
+        anoncreds: {
+          credentialDefinitionId: 'credDefId123',
+          attributes: [
+            { name: 'company', value: 'Acme Corporation' },
+            { name: 'role', value: 'Partner' },
+          ],
+        },
+      },
+    })
+    
+    console.log('✓ Credential offer sent from Tenant 1')
+  }
+)
+
+// Tenant 2 receives and accepts the credential
+await rootAgent.modules.tenants.withTenantAgent(
+  { tenantId: tenant2Record.id },
+  async (holderAgent) => {
+    // Credential is auto-accepted if configured
+    const credentials = await holderAgent.didcomm.credentials.getAll()
+    console.log('✓ Tenant 2 received credentials:', credentials.length)
+  }
+)
+```
+
+</Steps>
+
+## Tenant Management
+
+### Find and List Tenants
+
+```typescript
+// Get tenant by ID
+const tenant = await rootAgent.modules.tenants.getTenantById(tenant1Record.id)
+console.log('Found tenant:', tenant.config.label)
+
+// Find tenants by label
+const acmeTenants = await rootAgent.modules.tenants.findTenantsByLabel('Acme Corporation')
+console.log('Found tenants:', acmeTenants.length)
+
+// Get all tenants (use with caution in production)
+const allTenants = await rootAgent.modules.tenants.getAllTenants()
+console.log('Total tenants:', allTenants.length)
+```
+
+### Update Tenant Configuration
+
+```typescript
+const tenantAgent = await rootAgent.modules.tenants.getTenantAgent({
+  tenantId: tenant1Record.id,
+})
+
+// Update tenant configuration
+tenant1Record.config.label = 'Acme Corporation Ltd.'
+await rootAgent.modules.tenants.updateTenant(tenant1Record)
+
+await tenantAgent.endSession()
+console.log('✓ Tenant configuration updated')
+```
+
+### Delete a Tenant
+
+```typescript
+// Delete tenant and all associated data
+await rootAgent.modules.tenants.deleteTenantById(tenant1Record.id)
+
+console.log('✓ Tenant deleted')
+
+// Attempting to access deleted tenant will throw an error
+try {
+  await rootAgent.modules.tenants.getTenantAgent({ tenantId: tenant1Record.id })
+} catch (error) {
+  console.log('Expected error:', error.message)
+  // Output: TenantRecord: record with id {id} not found.
+}
+```
+
+## Advanced Multi-Tenant Scenarios
+
+### Tenant with Custom Modules
+
+Configure tenants with specific module configurations:
+
+```typescript
+import { AnonCredsModule } from '@credo-ts/anoncreds'
+import { IndyVdrModule } from '@credo-ts/indy-vdr'
+import { anoncreds } from '@hyperledger/anoncreds-nodejs'
+import { indyVdr } from '@hyperledger/indy-vdr-nodejs'
+
+const rootAgentWithModules = new Agent({
+  config: {
+    label: 'Multi-Tenant with Modules',
+  },
+  dependencies: agentDependencies,
+  modules: {
+    didcomm: new DidCommModule({
+      endpoints: ['http://localhost:3000'],
+    }),
+    tenants: new TenantsModule(),
+    askar: new AskarModule({
+      askar,
+      enableStorage: false,
+    }),
+    // Modules available to all tenants
+    anoncreds: new AnonCredsModule({
+      registries: [],
+      anoncreds,
+    }),
+    indyVdr: new IndyVdrModule({
+      indyVdr,
+      networks: [
+        {
+          indyNamespace: 'bcovrin:test',
+          genesisTransactions: '<genesis>',
+        },
+      ],
+    }),
+  },
+})
+
+await rootAgentWithModules.initialize()
+```
+
+### Tenant-Specific Endpoints
+
+Route messages to specific tenants:
+
+```typescript
+// Create tenant with specific endpoint
+const tenantWithEndpoint = await rootAgent.modules.tenants.createTenant({
+  config: {
+    label: 'Tenant with Custom Endpoint',
+  },
+})
+
+// Configure tenant-specific routing
+const tenantAgent = await rootAgent.modules.tenants.getTenantAgent({
+  tenantId: tenantWithEndpoint.id,
+})
+
+// Update endpoint configuration for this tenant
+const outOfBand = await tenantAgent.didcomm.oob.createInvitation()
+const invitationUrl = outOfBand.outOfBandInvitation.toUrl({
+  domain: `https://tenant-${tenantWithEndpoint.id}.example.com`,
+})
+
+console.log('Tenant-specific invitation:', invitationUrl)
+await tenantAgent.endSession()
+```
+
+### Handling Tenant Sessions
+
+Manage multiple concurrent tenant sessions:
+
+```typescript
+// Get multiple tenant agents
+const session1 = await rootAgent.modules.tenants.getTenantAgent({
+  tenantId: tenant1Record.id,
+})
+
+const session2 = await rootAgent.modules.tenants.getTenantAgent({
+  tenantId: tenant2Record.id,
+})
+
+try {
+  // Perform operations on both tenants
+  const [dids1, dids2] = await Promise.all([
+    session1.dids.getCreatedDids({}),
+    session2.dids.getCreatedDids({}),
+  ])
+  
+  console.log('Tenant 1 DIDs:', dids1.length)
+  console.log('Tenant 2 DIDs:', dids2.length)
+} finally {
+  // Always close sessions
+  await session1.endSession()
+  await session2.endSession()
+}
+```
+
+## Storage Considerations
+
+### Askar Multi-Tenant Profiles
+
+Use Askar profiles for efficient tenant isolation:
+
+```typescript
+import { AskarModule } from '@credo-ts/askar'
+import { askar } from '@openwallet-foundation/askar-nodejs'
+
+const rootAgent = new Agent({
+  config: {
+    label: 'Multi-Tenant with Askar Profiles',
+  },
+  modules: {
+    tenants: new TenantsModule(),
+    askar: new AskarModule({
+      askar,
+      enableStorage: false,
+      store: {
+        id: 'multi-tenant-store',
+        key: 'multi-tenant-key',
+      },
+    }),
+  },
+})
+
+await rootAgent.initialize()
+
+// Each tenant gets its own Askar profile
+const tenant = await rootAgent.modules.tenants.createTenant({
+  config: {
+    label: 'Isolated Tenant',
+  },
+})
+
+// Tenant data is isolated at the storage layer
+console.log('✓ Tenant created with isolated storage profile')
+```
+
+## Best Practices
+
+- Always call `endSession()` or use `withTenantAgent()` to prevent resource leaks
+- Use the cache module to improve performance with many tenants
+- Implement proper error handling for tenant operations
+- Consider rate limiting per tenant to prevent abuse
+- Monitor tenant storage usage in production
+- Use tenant-specific logging for debugging
+- Implement tenant authentication/authorization in your API layer
+- Backup tenant data regularly
+
+## Security Considerations
+
+- Each tenant's wallet is encrypted with its own key
+- Tenants cannot access each other's data
+- Root agent should not be directly exposed to end users
+- Implement proper tenant ID validation
+- Use HTTPS for all tenant endpoints
+- Rotate tenant keys periodically
+
+## Next Steps
+
+- Learn about [Issuing Credentials](/examples/issuing-credentials)
+- Explore [Verifying Presentations](/examples/verifying-presentations)
+- Understand [Connection Establishment](/examples/establishing-connections)

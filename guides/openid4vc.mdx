@@ -1,0 +1,533 @@
+---
+title: OpenID4VC
+description: Issue and verify credentials using OpenID for Verifiable Credentials (OpenID4VCI and OpenID4VP)
+---
+
+OpenID for Verifiable Credentials provides a modern, standardized approach to credential issuance and verification using OpenID Connect flows.
+
+## Overview
+
+Credo supports:
+- **OpenID4VCI** - Credential issuance using authorization code and pre-authorized code flows
+- **OpenID4VP** - Credential presentation and verification
+- **Multiple formats** - SD-JWT VC, JWT VC, mDocs (ISO mdoc)
+
+## Installation
+
+```bash
+npm install @credo-ts/openid4vc
+```
+
+## Basic Setup
+
+The OpenID4VC module requires an Express app for HTTP endpoints:
+
+```typescript
+import { Agent } from '@credo-ts/core'
+import { OpenId4VcModule } from '@credo-ts/openid4vc'
+import { agentDependencies } from '@credo-ts/node'
+import express from 'express'
+
+const app = express()
+
+const agent = new Agent({
+  config: {
+    allowInsecureHttpUrls: true, // Only for development
+  },
+  dependencies: agentDependencies,
+  modules: {
+    openid4vc: new OpenId4VcModule({
+      app,
+      issuer: {
+        baseUrl: 'http://localhost:3000/oid4vci',
+      },
+      verifier: {
+        baseUrl: 'http://localhost:3000/oid4vp',
+      },
+    }),
+  },
+})
+
+await agent.initialize()
+app.listen(3000)
+```
+
+## Issuer Setup
+
+### Define Credential Configurations
+
+Specify what credentials your issuer supports:
+
+```typescript
+import {
+  OpenId4VciCredentialFormatProfile,
+  type OpenId4VciCredentialConfigurationsSupportedWithFormats,
+} from '@credo-ts/openid4vc'
+import { Kms } from '@credo-ts/core'
+
+const credentialConfigurations = {
+  'UniversityDegree-sdjwt': {
+    format: OpenId4VciCredentialFormatProfile.SdJwtVc,
+    vct: 'UniversityDegreeCredential',
+    scope: 'openid4vc:credential:UniversityDegree',
+    cryptographic_binding_methods_supported: ['jwk', 'did:key'],
+    credential_signing_alg_values_supported: [
+      Kms.KnownJwaSignatureAlgorithms.EdDSA,
+      Kms.KnownJwaSignatureAlgorithms.ES256,
+    ],
+    proof_types_supported: {
+      jwt: {
+        proof_signing_alg_values_supported: [
+          Kms.KnownJwaSignatureAlgorithms.EdDSA,
+        ],
+      },
+    },
+  },
+  'UniversityDegree-jwt': {
+    format: OpenId4VciCredentialFormatProfile.JwtVcJson,
+    scope: 'openid4vc:credential:UniversityDegree',
+    cryptographic_binding_methods_supported: ['did:key', 'did:jwk'],
+    credential_signing_alg_values_supported: [
+      Kms.KnownJwaSignatureAlgorithms.EdDSA,
+    ],
+    credential_definition: {
+      type: ['VerifiableCredential', 'UniversityDegreeCredential'],
+    },
+    proof_types_supported: {
+      jwt: {
+        proof_signing_alg_values_supported: [
+          Kms.KnownJwaSignatureAlgorithms.EdDSA,
+        ],
+      },
+    },
+  },
+} satisfies OpenId4VciCredentialConfigurationsSupportedWithFormats
+```
+
+### Create an Issuer
+
+```typescript
+const issuerRecord = await agent.openid4vc.issuer.createIssuer({
+  issuerId: 'my-university-issuer',
+  credentialConfigurationsSupported: credentialConfigurations,
+})
+
+const issuerMetadata = await agent.openid4vc.issuer.getIssuerMetadata(
+  issuerRecord.issuerId
+)
+
+console.log('Issuer URL:', issuerMetadata.credentialIssuer.credential_issuer)
+```
+
+### Map Credential Requests to Credentials
+
+Define how to transform credential requests into actual credentials:
+
+```typescript
+import {
+  type OpenId4VciCredentialRequestToCredentialMapper,
+  type OpenId4VciSignSdJwtCredentials,
+} from '@credo-ts/openid4vc'
+import { ClaimFormat, W3cCredential, W3cCredentialSubject } from '@credo-ts/core'
+
+const credentialMapper: OpenId4VciCredentialRequestToCredentialMapper = async ({
+  holderBinding,
+  credentialConfigurationId,
+  authorization,
+}) => {
+  const authorizedUser = authorization.accessToken.payload.sub
+
+  if (credentialConfigurationId === 'UniversityDegree-sdjwt') {
+    return {
+      type: 'credentials',
+      format: ClaimFormat.SdJwtDc,
+      credentials: holderBinding.keys.map((binding) => ({
+        payload: {
+          vct: 'UniversityDegreeCredential',
+          university: 'Example University',
+          degree: 'Bachelor of Science',
+          student_id: authorizedUser,
+        },
+        holder: binding,
+        issuer: {
+          method: 'did',
+          didUrl: `${issuerDid}#${issuerKey}`,
+        },
+        disclosureFrame: { _sd: ['university', 'degree'] },
+      })),
+    } satisfies OpenId4VciSignSdJwtCredentials
+  }
+
+  // Handle other credential types...
+  throw new Error('Unsupported credential type')
+}
+```
+
+### Configure the Issuer Module
+
+```typescript
+new OpenId4VcModule({
+  app,
+  issuer: {
+    baseUrl: 'http://localhost:3000/oid4vci',
+    credentialRequestToCredentialMapper: credentialMapper,
+  },
+})
+```
+
+## Creating Credential Offers
+
+<Tabs>
+  <Tab title="Pre-Authorized Flow">
+    ```typescript
+    const { credentialOffer, issuanceSession } = 
+      await agent.openid4vc.issuer.createCredentialOffer({
+        issuerId: issuerRecord.issuerId,
+        credentialConfigurationIds: ['UniversityDegree-sdjwt'],
+        preAuthorizedCodeFlowConfig: {
+          txCode: {
+            input_mode: 'numeric',
+            length: 4,
+            description: 'Enter the 4-digit PIN',
+          },
+        },
+      })
+
+    console.log('PIN:', issuanceSession.preAuthorizedCode)
+    console.log('Offer:', credentialOffer)
+    ```
+  </Tab>
+  <Tab title="Authorization Code Flow">
+    ```typescript
+    const { credentialOffer, issuanceSession } = 
+      await agent.openid4vc.issuer.createCredentialOffer({
+        issuerId: issuerRecord.issuerId,
+        credentialConfigurationIds: ['UniversityDegree-jwt'],
+        authorizationCodeFlowConfig: {
+          issuerState: 'unique-state-value',
+        },
+      })
+
+    console.log('Credential Offer:', credentialOffer)
+    ```
+  </Tab>
+</Tabs>
+
+## Holder (Wallet) Setup
+
+### Resolve a Credential Offer
+
+```typescript
+const resolvedOffer = await agent.openid4vc.holder.resolveCredentialOffer(
+  credentialOfferUri
+)
+
+console.log('Available credentials:', resolvedOffer.offeredCredentialConfigurations)
+```
+
+### Request and Store Credentials
+
+```typescript
+import { DidKey, Kms } from '@credo-ts/core'
+
+// Request access token
+const tokenResponse = await agent.openid4vc.holder.requestToken({
+  resolvedCredentialOffer: resolvedOffer,
+  txCode: '1234', // PIN if required
+})
+
+// Request credentials
+const credentialResponse = await agent.openid4vc.holder.requestCredentials({
+  resolvedCredentialOffer: resolvedOffer,
+  credentialConfigurationIds: ['UniversityDegree-sdjwt'],
+  credentialBindingResolver: async ({ proofTypes }) => {
+    // Create a key for credential binding
+    const key = await agent.kms.createKeyForSignatureAlgorithm({
+      algorithm: proofTypes.jwt?.supportedSignatureAlgorithms[0] ?? 'EdDSA',
+    })
+
+    const publicJwk = Kms.PublicJwk.fromPublicJwk(key.publicJwk)
+    const didKey = new DidKey(publicJwk)
+
+    return {
+      method: 'did',
+      didUrls: [`${didKey.did}#${didKey.publicJwk.fingerprint}`],
+    }
+  },
+  ...tokenResponse,
+})
+
+// Store the credentials
+for (const credential of credentialResponse.credentials) {
+  await agent.sdJwtVc.store({ record: credential.record })
+}
+```
+
+## Verifier Setup
+
+### Create a Verifier
+
+```typescript
+const verifierRecord = await agent.openid4vc.verifier.createVerifier({
+  verifierId: 'my-verifier',
+})
+```
+
+### Request Presentation
+
+<Tabs>
+  <Tab title="Presentation Exchange">
+    ```typescript
+    const authorizationRequest = 
+      await agent.openid4vc.verifier.createAuthorizationRequest({
+        verifierId: verifierRecord.verifierId,
+        requestSigner: {
+          method: 'did',
+          didUrl: `${verifierDid}#${verifierKey}`,
+        },
+        presentationExchange: {
+          definition: {
+            id: 'degree-verification',
+            input_descriptors: [
+              {
+                id: 'university-degree',
+                format: {
+                  'vc+sd-jwt': {
+                    'sd-jwt_alg_values': ['EdDSA', 'ES256'],
+                  },
+                },
+                constraints: {
+                  fields: [
+                    {
+                      path: ['$.vct'],
+                      filter: {
+                        type: 'string',
+                        const: 'UniversityDegreeCredential',
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        },
+      })
+
+    console.log('Request URL:', authorizationRequest.authorizationRequestUri)
+    ```
+  </Tab>
+  <Tab title="DCQL (DIF Credential Query)">
+    ```typescript
+    const authorizationRequest = 
+      await agent.openid4vc.verifier.createAuthorizationRequest({
+        verifierId: verifierRecord.verifierId,
+        requestSigner: {
+          method: 'did',
+          didUrl: `${verifierDid}#${verifierKey}`,
+        },
+        dcql: {
+          query: {
+            credentials: [
+              {
+                id: 'credential-1',
+                format: 'dc+sd-jwt',
+                meta: {
+                  vct_values: ['UniversityDegreeCredential'],
+                },
+              },
+            ],
+          },
+        },
+      })
+
+    console.log('DCQL Request:', authorizationRequest.authorizationRequestUri)
+    ```
+  </Tab>
+</Tabs>
+
+## Holder Presenting Credentials
+
+### Resolve Presentation Request
+
+```typescript
+const resolvedRequest = 
+  await agent.openid4vc.holder.resolveOpenId4VpAuthorizationRequest(
+    authorizationRequestUri
+  )
+```
+
+### Select and Submit Credentials
+
+```typescript
+// Select credentials
+const selectedCredentials = 
+  agent.openid4vc.holder.selectCredentialsForPresentationExchangeRequest(
+    resolvedRequest.presentationExchange.credentialsForRequest
+  )
+
+// Submit presentation
+const submissionResult = 
+  await agent.openid4vc.holder.acceptOpenId4VpAuthorizationRequest({
+    authorizationRequestPayload: resolvedRequest.authorizationRequestPayload,
+    presentationExchange: {
+      credentials: selectedCredentials,
+    },
+  })
+
+console.log('Presentation submitted:', submissionResult.status)
+```
+
+## Supported Credential Formats
+
+<AccordionGroup>
+  <Accordion title="SD-JWT VC (Selective Disclosure)">
+    ```typescript
+    {
+      format: OpenId4VciCredentialFormatProfile.SdJwtVc,
+      vct: 'CredentialType',
+      cryptographic_binding_methods_supported: ['jwk', 'did:key'],
+      credential_signing_alg_values_supported: ['EdDSA', 'ES256'],
+    }
+    ```
+  </Accordion>
+  <Accordion title="JWT VC JSON">
+    ```typescript
+    {
+      format: OpenId4VciCredentialFormatProfile.JwtVcJson,
+      cryptographic_binding_methods_supported: ['did:key', 'did:jwk'],
+      credential_signing_alg_values_supported: ['EdDSA'],
+      credential_definition: {
+        type: ['VerifiableCredential', 'CustomCredential'],
+      },
+    }
+    ```
+  </Accordion>
+  <Accordion title="mDocs (ISO mdoc)">
+    ```typescript
+    {
+      format: OpenId4VciCredentialFormatProfile.MsoMdoc,
+      doctype: 'org.example.degree',
+      cryptographic_binding_methods_supported: ['jwk'],
+      credential_signing_alg_values_supported: [
+        Kms.KnownCoseSignatureAlgorithms.Ed25519,
+        Kms.KnownCoseSignatureAlgorithms.ESP256,
+      ],
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Authorization Server Integration
+
+Integrate with external OAuth2/OIDC providers:
+
+```typescript
+await agent.openid4vc.issuer.createIssuer({
+  issuerId: 'my-issuer',
+  credentialConfigurationsSupported: credentialConfigurations,
+  authorizationServerConfigs: [
+    {
+      type: 'chained',
+      issuer: 'https://accounts.google.com',
+      clientAuthentication: {
+        type: 'clientSecret',
+        clientId: process.env.GOOGLE_CLIENT_ID,
+        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      },
+      scopesMapping: {
+        'openid4vc:credential:UniversityDegree': [
+          'openid',
+          'email',
+        ],
+      },
+    },
+  ],
+})
+```
+
+## X.509 Certificates for mDocs
+
+For ISO mdoc credentials, configure trusted certificates:
+
+```typescript
+import { X509Module, X509Service } from '@credo-ts/core'
+
+const agent = new Agent({
+  config: {},
+  dependencies: agentDependencies,
+  modules: {
+    x509: new X509Module({
+      getTrustedCertificatesForVerification: (agentContext, { certificateChain }) => {
+        // Return trusted root certificates
+        return [certificateChain[0].toString('pem')]
+      },
+    }),
+    openid4vc: new OpenId4VcModule({ app }),
+  },
+})
+```
+
+## Complete Issuer Example
+
+Here's a complete example from the Credo demo:
+
+```typescript
+import { Agent, ConsoleLogger, LogLevel } from '@credo-ts/core'
+import { OpenId4VcModule } from '@credo-ts/openid4vc'
+import { agentDependencies } from '@credo-ts/node'
+import express from 'express'
+
+const app = express()
+const ISSUER_HOST = 'http://localhost:2000'
+
+const agent = new Agent({
+  config: {
+    allowInsecureHttpUrls: true,
+    logger: new ConsoleLogger(LogLevel.info),
+  },
+  dependencies: agentDependencies,
+  modules: {
+    openid4vc: new OpenId4VcModule({
+      app,
+      issuer: {
+        baseUrl: `${ISSUER_HOST}/oid4vci`,
+        credentialRequestToCredentialMapper: async ({
+          holderBinding,
+          credentialConfigurationId,
+        }) => {
+          // Map to credentials based on configuration
+          return {
+            type: 'credentials',
+            format: ClaimFormat.SdJwtDc,
+            credentials: holderBinding.keys.map((binding) => ({
+              payload: { vct: 'ExampleCredential', data: 'example' },
+              holder: binding,
+              issuer: { method: 'did', didUrl: `${issuerDid}#key-1` },
+            })),
+          }
+        },
+      },
+    }),
+  },
+})
+
+await agent.initialize()
+app.listen(2000, () => console.log('Issuer ready'))
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="DIDComm" icon="comments" href="./didcomm">
+    Use DIDComm for peer-to-peer credential exchange
+  </Card>
+  <Card title="AnonCreds" icon="shield" href="./anoncreds">
+    Privacy-preserving credentials with AnonCreds
+  </Card>
+  <Card title="Platform Setup" icon="mobile" href="./platform-setup">
+    Configure for Node.js or React Native
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/openid4vc">
+    Full OpenID4VC API documentation
+  </Card>
+</CardGroup>

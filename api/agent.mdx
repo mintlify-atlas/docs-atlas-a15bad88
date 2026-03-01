@@ -1,0 +1,216 @@
+---
+title: 'Agent and BaseAgent'
+description: 'Core agent classes for Credo'
+---
+
+## Agent
+
+The main Agent class that extends BaseAgent and provides initialization and lifecycle management.
+
+### Constructor
+
+```typescript
+import { Agent } from '@credo-ts/core'
+
+const agent = new Agent({
+  config: initConfig,
+  modules: {
+    // Module configuration
+  },
+  dependencies: agentDependencies
+})
+```
+
+<ParamField path="options.config" type="InitConfig" optional>
+  Configuration options for the agent. See [AgentConfig](/api/agent-config) for details.
+</ParamField>
+
+<ParamField path="options.modules" type="AgentModulesInput" optional>
+  Module configuration for extending agent functionality
+</ParamField>
+
+<ParamField path="options.dependencies" type="AgentDependencies" required>
+  Platform-specific dependencies (React Native, Node.js, etc.)
+</ParamField>
+
+### Methods
+
+#### initialize()
+
+Initializes the agent and all registered modules. Must be called before using the agent.
+
+```typescript
+await agent.initialize()
+```
+
+**Returns:** `Promise<void>`
+
+**Throws:** `CredoError` if agent is already initialized or storage is not up to date
+
+#### shutdown()
+
+Shuts down the agent and all registered modules.
+
+```typescript
+await agent.shutdown()
+```
+
+**Returns:** `Promise<void>`
+
+### Properties
+
+#### events
+
+Access to the event emitter for listening to agent events.
+
+```typescript
+agent.events.on(CredentialEventTypes.CredentialStateChanged, (event) => {
+  console.log('Credential state changed:', event.payload.credentialRecord.state)
+})
+```
+
+**Type:** `EventEmitter`
+
+## BaseAgent
+
+Base class that provides access to all agent APIs. The Agent class extends this.
+
+### Properties
+
+All APIs are available directly on the agent instance:
+
+#### dids
+
+DID management API. See [DidsApi](/api/dids).
+
+```typescript
+const { didDocument } = await agent.dids.resolve('did:key:...')
+```
+
+**Type:** `DidsApi`
+
+#### w3cCredentials
+
+W3C Verifiable Credentials API. See [W3cCredentialsApi](/api/credentials).
+
+```typescript
+const signedCredential = await agent.w3cCredentials.signCredential({ ... })
+```
+
+**Type:** `W3cCredentialsApi`
+
+#### sdJwtVc
+
+SD-JWT VC API. See [SdJwtVcApi](/api/sd-jwt-vc).
+
+```typescript
+const sdJwt = await agent.sdJwtVc.sign({ ... })
+```
+
+**Type:** `SdJwtVcApi`
+
+#### mdoc
+
+Mobile document (mdoc) API. See [MdocApi](/api/mdoc).
+
+```typescript
+const mdoc = await agent.mdoc.sign({ ... })
+```
+
+**Type:** `MdocApi`
+
+#### didcomm
+
+DIDComm APIs (connections, credentials, proofs). Only available if DIDComm module is registered. See [DIDComm APIs](/api/didcomm).
+
+```typescript
+const connection = await agent.didcomm.connections.acceptOutOfBandInvitation({ ... })
+```
+
+**Type:** `DidCommApi | undefined`
+
+#### openid4vc
+
+OpenID4VC APIs (issuer, verifier, holder). Only available if OpenID4VC module is registered. See [OpenId4VcApi](/api/openid4vc).
+
+```typescript
+const credential = await agent.openid4vc.holder.requestCredential({ ... })
+```
+
+**Type:** `OpenId4VcApi | undefined`
+
+#### modules
+
+Access to custom registered modules.
+
+```typescript
+// Access custom module
+const result = await agent.modules.myCustomModule.someMethod()
+```
+
+**Type:** `AgentApi<WithoutDefaultModules<AgentModules>>`
+
+#### config
+
+Agent configuration.
+
+```typescript
+const logger = agent.config.logger
+```
+
+**Type:** `AgentConfig`
+
+#### context
+
+Agent context for dependency injection.
+
+```typescript
+const storageService = agent.context.resolve(StorageService)
+```
+
+**Type:** `AgentContext`
+
+#### isInitialized
+
+Whether the agent has been initialized.
+
+```typescript
+if (agent.isInitialized) {
+  // Agent is ready to use
+}
+```
+
+**Type:** `boolean`
+
+## Example Usage
+
+```typescript
+import { Agent, InitConfig } from '@credo-ts/core'
+import { agentDependencies } from '@credo-ts/node'
+import { AskarModule } from '@credo-ts/askar'
+import { ariesAskar } from '@hyperledger/aries-askar-nodejs'
+
+const config: InitConfig = {
+  logger: new ConsoleLogger(LogLevel.info),
+  autoUpdateStorageOnStartup: true,
+}
+
+const agent = new Agent({
+  config,
+  dependencies: agentDependencies,
+  modules: {
+    askar: new AskarModule({ ariesAskar }),
+  },
+})
+
+await agent.initialize()
+
+// Use agent APIs
+const { didDocument } = await agent.dids.create({
+  method: 'key',
+  options: { keyType: KeyType.Ed25519 },
+})
+
+// Shutdown when done
+await agent.shutdown()
+```

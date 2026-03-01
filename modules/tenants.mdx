@@ -1,0 +1,406 @@
+---
+title: '@credo-ts/tenants'
+description: Multi-tenancy support for hosting multiple isolated agent instances
+---
+
+The Tenants module enables multi-tenancy in Credo, allowing a single agent instance to manage multiple isolated tenants. This is essential for building SaaS applications or services that host wallets for multiple users.
+
+## Overview
+
+Multi-tenancy provides:
+
+- **Tenant isolation** - Each tenant has isolated storage and keys
+- **Dynamic tenant management** - Create and delete tenants at runtime
+- **Resource efficiency** - Share infrastructure across tenants
+- **Module inheritance** - Tenants inherit modules from root agent
+- **Tenant routing** - Route incoming messages to correct tenant
+
+## Installation
+
+```bash
+npm install @credo-ts/tenants @credo-ts/core
+```
+
+## Dependencies
+
+The Tenants module requires:
+
+- `@credo-ts/core` - Core functionality
+- `@credo-ts/didcomm` - For DIDComm-based routing (automatically installed)
+- A storage module that supports multi-tenancy (e.g., `@credo-ts/askar`)
+
+## Registration
+
+```typescript
+import { Agent } from '@credo-ts/core'
+import { TenantsModule } from '@credo-ts/tenants'
+import { AskarModule } from '@credo-ts/askar'
+import { ariesAskar } from '@hyperledger/aries-askar-nodejs'
+
+const agent = new Agent({
+  config: {
+    label: 'Multi-Tenant Agent',
+    walletConfig: {
+      id: 'root-wallet',
+      key: 'root-wallet-key',
+    },
+  },
+  dependencies: agentDependencies,
+  modules: {
+    // Askar with multi-tenancy support
+    askar: new AskarModule({
+      ariesAskar,
+      multiWalletDatabaseScheme: AskarMultiWalletDatabaseScheme.ProfilePerWallet,
+    }),
+    
+    // Tenants module
+    tenants: new TenantsModule(),
+  },
+})
+
+await agent.initialize()
+```
+
+## Configuration Options
+
+```typescript
+interface TenantsModuleConfigOptions {
+  // Currently no configuration options
+  // Configuration is minimal as behavior is controlled by storage module
+}
+```
+
+## Creating Tenants
+
+### Basic Tenant Creation
+
+```typescript
+// Create a new tenant
+const tenantRecord = await agent.modules.tenants.createTenant({
+  config: {
+    label: 'Alice Tenant',
+    // Tenant-specific configuration
+  },
+})
+
+console.log('Tenant ID:', tenantRecord.id)
+```
+
+### Tenant with Custom Configuration
+
+```typescript
+const tenantRecord = await agent.modules.tenants.createTenant({
+  config: {
+    label: 'Bob Tenant',
+    endpoints: ['https://bob.example.com'],
+    connectionImageUrl: 'https://bob.example.com/logo.png',
+  },
+})
+```
+
+## Working with Tenants
+
+### Get Tenant Agent Context
+
+To perform operations as a specific tenant:
+
+```typescript
+// Get tenant context
+const tenantAgent = await agent.modules.tenants.getTenantAgent({
+  tenantId: tenantRecord.id,
+})
+
+// Use tenant agent like normal agent
+const dids = await tenantAgent.dids.getCreatedDids()
+
+// Important: Close the context when done
+await tenantAgent.endSession()
+```
+
+### Scoped Operations
+
+For single operations, use the convenience method:
+
+```typescript
+await agent.modules.tenants.withTenantAgent(
+  { tenantId: tenantRecord.id },
+  async (tenantAgent) => {
+    // Perform tenant operations
+    const invitation = await tenantAgent.oob.createInvitation()
+    return invitation
+  }
+)
+// Context automatically closed after callback
+```
+
+## Tenant Operations
+
+### Create Connection for Tenant
+
+```typescript
+const invitation = await agent.modules.tenants.withTenantAgent(
+  { tenantId: tenantRecord.id },
+  async (tenantAgent) => {
+    const outOfBandRecord = await tenantAgent.oob.createInvitation({
+      label: tenantRecord.config.label,
+    })
+    return outOfBandRecord.outOfBandInvitation.toUrl({
+      domain: 'https://example.com',
+    })
+  }
+)
+```
+
+### Issue Credential as Tenant
+
+```typescript
+await agent.modules.tenants.withTenantAgent(
+  { tenantId: tenantRecord.id },
+  async (tenantAgent) => {
+    await tenantAgent.credentials.offerCredential({
+      connectionId: connectionId,
+      protocolVersion: 'v2',
+      credentialFormats: {
+        anoncreds: {
+          credentialDefinitionId,
+          attributes: [
+            { name: 'name', value: 'Alice' },
+          ],
+        },
+      },
+    })
+  }
+)
+```
+
+## Managing Tenants
+
+### List All Tenants
+
+```typescript
+const tenants = await agent.modules.tenants.getAllTenants()
+
+for (const tenant of tenants) {
+  console.log(`Tenant: ${tenant.id} - ${tenant.config.label}`)
+}
+```
+
+### Get Tenant by ID
+
+```typescript
+const tenant = await agent.modules.tenants.getTenantById({
+  tenantId: 'tenant-id',
+})
+```
+
+### Update Tenant
+
+```typescript
+const updatedTenant = await agent.modules.tenants.updateTenant({
+  tenantId: tenantRecord.id,
+  config: {
+    label: 'Updated Label',
+  },
+})
+```
+
+### Delete Tenant
+
+```typescript
+await agent.modules.tenants.deleteTenantById({
+  tenantId: tenantRecord.id,
+})
+```
+
+## Message Routing
+
+The tenants module automatically routes incoming DIDComm messages to the correct tenant based on the recipient keys.
+
+### How Routing Works
+
+1. Message arrives at root agent endpoint
+2. Routing module extracts recipient key from message
+3. Tenant is identified from routing records
+4. Message is processed in tenant context
+
+### Manual Routing Registration
+
+Routing records are created automatically, but you can manage them manually:
+
+```typescript
+// Typically not needed - handled automatically
+await agent.modules.tenants.withTenantAgent(
+  { tenantId: tenantRecord.id },
+  async (tenantAgent) => {
+    // Routing records created when DIDs/keys are created
+  }
+)
+```
+
+## Storage Considerations
+
+### Askar Multi-Tenancy Modes
+
+When using `@credo-ts/askar`, choose a database scheme:
+
+#### Profile Per Wallet (Recommended)
+
+```typescript
+import { AskarMultiWalletDatabaseScheme } from '@credo-ts/askar'
+
+modules: {
+  askar: new AskarModule({
+    ariesAskar,
+    multiWalletDatabaseScheme: AskarMultiWalletDatabaseScheme.ProfilePerWallet,
+  }),
+}
+```
+
+- Single database with profiles for each tenant
+- Better resource efficiency
+- Easier backups
+
+#### Database Per Wallet
+
+```typescript
+modules: {
+  askar: new AskarModule({
+    ariesAskar,
+    multiWalletDatabaseScheme: AskarMultiWalletDatabaseScheme.DatabasePerWallet,
+  }),
+}
+```
+
+- Separate database per tenant
+- Better isolation
+- Independent scaling
+
+## Events
+
+### Tenant Events
+
+```typescript
+import { TenantEventTypes } from '@credo-ts/tenants'
+
+// Listen for tenant creation
+agent.events.on(TenantEventTypes.TenantCreated, ({ payload }) => {
+  console.log('New tenant created:', payload.tenantRecord.id)
+})
+
+// Listen for tenant updates
+agent.events.on(TenantEventTypes.TenantUpdated, ({ payload }) => {
+  console.log('Tenant updated:', payload.tenantRecord.id)
+})
+
+// Listen for tenant deletion
+agent.events.on(TenantEventTypes.TenantDeleted, ({ payload }) => {
+  console.log('Tenant deleted:', payload.tenantRecord.id)
+})
+```
+
+## Best Practices
+
+### 1. Always Close Tenant Sessions
+
+```typescript
+// Good - automatic cleanup
+await agent.modules.tenants.withTenantAgent({ tenantId }, async (tenant) => {
+  // Work with tenant
+})
+
+// Also good - manual cleanup
+const tenantAgent = await agent.modules.tenants.getTenantAgent({ tenantId })
+try {
+  // Work with tenant
+} finally {
+  await tenantAgent.endSession()
+}
+```
+
+### 2. Use Tenant-Specific Configuration
+
+```typescript
+const tenant = await agent.modules.tenants.createTenant({
+  config: {
+    label: `User ${userId}`,
+    endpoints: [`https://${userId}.example.com`],
+  },
+})
+```
+
+### 3. Handle Tenant Errors
+
+```typescript
+try {
+  await agent.modules.tenants.withTenantAgent({ tenantId }, async (tenant) => {
+    // Tenant operations
+  })
+} catch (error) {
+  if (error.message.includes('not found')) {
+    // Handle missing tenant
+  }
+}
+```
+
+### 4. Implement Tenant Authentication
+
+```typescript
+// In your API layer
+const authenticateTenant = async (tenantId: string, apiKey: string) => {
+  const tenant = await agent.modules.tenants.getTenantById({ tenantId })
+  // Verify API key matches tenant
+  return tenant
+}
+```
+
+## Example: Multi-Tenant API
+
+```typescript
+import express from 'express'
+
+const app = express()
+
+// Create tenant endpoint
+app.post('/tenants', async (req, res) => {
+  const tenant = await agent.modules.tenants.createTenant({
+    config: {
+      label: req.body.label,
+    },
+  })
+  
+  res.json({ tenantId: tenant.id })
+})
+
+// Tenant operations
+app.post('/tenants/:tenantId/invitations', async (req, res) => {
+  const invitation = await agent.modules.tenants.withTenantAgent(
+    { tenantId: req.params.tenantId },
+    async (tenantAgent) => {
+      const oob = await tenantAgent.oob.createInvitation()
+      return oob.outOfBandInvitation.toUrl({ domain: 'https://example.com' })
+    }
+  )
+  
+  res.json({ invitationUrl: invitation })
+})
+```
+
+## API Reference
+
+- `agent.modules.tenants.createTenant()` - Create new tenant
+- `agent.modules.tenants.getTenantAgent()` - Get tenant agent context
+- `agent.modules.tenants.withTenantAgent()` - Execute with tenant context
+- `agent.modules.tenants.getAllTenants()` - List all tenants
+- `agent.modules.tenants.getTenantById()` - Get specific tenant
+- `agent.modules.tenants.updateTenant()` - Update tenant config
+- `agent.modules.tenants.deleteTenantById()` - Delete tenant
+
+## Source Code
+
+View the source code at:
+- [packages/tenants](https://github.com/openwallet-foundation/credo-ts/tree/main/packages/tenants)
+
+## Related Documentation
+
+- [Askar Module](/modules/askar)
+- [Agent Configuration](/concepts/agent)

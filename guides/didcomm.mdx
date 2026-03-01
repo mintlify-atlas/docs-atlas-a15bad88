@@ -1,0 +1,500 @@
+---
+title: DIDComm Protocol
+description: Configure and use DIDComm messaging for secure, peer-to-peer communication between agents
+---
+
+DIDComm (Decentralized Identity Communication) is a secure messaging protocol for communication between decentralized identity agents.
+
+## Installation
+
+```bash
+npm install @credo-ts/didcomm
+```
+
+## Basic Setup
+
+The `DidCommModule` provides messaging, connections, credentials, proofs, and more:
+
+```typescript
+import { Agent } from '@credo-ts/core'
+import { DidCommModule } from '@credo-ts/didcomm'
+import { agentDependencies } from '@credo-ts/node'
+
+const agent = new Agent({
+  config: {},
+  dependencies: agentDependencies,
+  modules: {
+    didcomm: new DidCommModule({
+      endpoints: ['http://localhost:3000'],
+      connections: {
+        autoAcceptConnections: true,
+      },
+    }),
+  },
+})
+
+await agent.initialize()
+```
+
+## Configuration Options
+
+### Endpoints
+
+Specify where your agent can receive messages:
+
+```typescript
+new DidCommModule({
+  endpoints: [
+    'http://localhost:3000',
+    'https://my-agent.example.com',
+  ],
+})
+```
+
+If no endpoints are provided, the agent uses a queue-based transport.
+
+### Transports
+
+Configure inbound and outbound transports:
+
+```typescript
+import {
+  DidCommModule,
+  DidCommHttpOutboundTransport,
+  DidCommWsOutboundTransport,
+} from '@credo-ts/didcomm'
+import {
+  DidCommHttpInboundTransport,
+  DidCommWsInboundTransport,
+} from '@credo-ts/node'
+
+new DidCommModule({
+  transports: {
+    inbound: [
+      new DidCommHttpInboundTransport({ port: 3000 }),
+      new DidCommWsInboundTransport({ port: 3001 }),
+    ],
+    outbound: [
+      new DidCommHttpOutboundTransport(),
+      new DidCommWsOutboundTransport(),
+    ],
+  },
+})
+```
+
+### Auto-Accept Settings
+
+Control automatic acceptance of connections, credentials, and proofs:
+
+```typescript
+import {
+  DidCommModule,
+  DidCommAutoAcceptCredential,
+  DidCommAutoAcceptProof,
+} from '@credo-ts/didcomm'
+
+new DidCommModule({
+  connections: {
+    autoAcceptConnections: true,
+  },
+  credentials: {
+    autoAcceptCredentials: DidCommAutoAcceptCredential.ContentApproved,
+  },
+  proofs: {
+    autoAcceptProofs: DidCommAutoAcceptProof.ContentApproved,
+  },
+})
+```
+
+**Auto-accept options:**
+- `DidCommAutoAcceptCredential.Always` - Accept all
+- `DidCommAutoAcceptCredential.ContentApproved` - Accept if content matches
+- `DidCommAutoAcceptCredential.Never` - Manual acceptance only
+
+## Creating Connections
+
+### Create an Invitation (Inviter)
+
+```typescript
+const outOfBand = await agent.didcomm.oob.createInvitation()
+
+const invitationUrl = outOfBand.outOfBandInvitation.toUrl({
+  domain: 'https://example.com',
+})
+
+console.log('Share this invitation:', invitationUrl)
+```
+
+### Accept an Invitation (Invitee)
+
+```typescript
+const { connectionRecord } = await agent.didcomm.oob.receiveInvitationFromUrl(
+  invitationUrl,
+  {
+    label: 'My Agent',
+  }
+)
+
+if (connectionRecord) {
+  await agent.didcomm.connections.returnWhenIsConnected(connectionRecord.id)
+  console.log('Connection established!')
+}
+```
+
+### Wait for Connection
+
+Listen for connection state changes:
+
+```typescript
+import {
+  DidCommConnectionEventTypes,
+  type DidCommConnectionStateChangedEvent,
+} from '@credo-ts/didcomm'
+
+agent.events.on<DidCommConnectionStateChangedEvent>(
+  DidCommConnectionEventTypes.DidCommConnectionStateChanged,
+  (event) => {
+    const { connectionRecord, previousState } = event.payload
+    console.log(
+      `Connection ${connectionRecord.id} changed from ${previousState} to ${connectionRecord.state}`
+    )
+  }
+)
+```
+
+## Credential Protocols
+
+Credo supports multiple credential exchange protocols:
+
+<Tabs>
+  <Tab title="V2 Protocol">
+    ```typescript
+    import {
+      DidCommCredentialV2Protocol,
+      AnonCredsDidCommCredentialFormatService,
+    } from '@credo-ts/didcomm'
+    import { AnonCredsDidCommCredentialFormatService } from '@credo-ts/anoncreds'
+
+    new DidCommModule({
+      credentials: {
+        credentialProtocols: [
+          new DidCommCredentialV2Protocol({
+            credentialFormats: [
+              new AnonCredsDidCommCredentialFormatService(),
+            ],
+          }),
+        ],
+      },
+    })
+    ```
+  </Tab>
+  <Tab title="V1 Protocol">
+    ```typescript
+    import {
+      DidCommCredentialV1Protocol,
+      LegacyIndyDidCommCredentialFormatService,
+    } from '@credo-ts/didcomm'
+
+    new DidCommModule({
+      credentials: {
+        credentialProtocols: [
+          new DidCommCredentialV1Protocol({
+            indyCredentialFormat: new LegacyIndyDidCommCredentialFormatService(),
+          }),
+        ],
+      },
+    })
+    ```
+  </Tab>
+</Tabs>
+
+## Issuing Credentials
+
+### Offer a Credential
+
+```typescript
+await agent.didcomm.credentials.offerCredential({
+  connectionId: connectionRecord.id,
+  protocolVersion: 'v2',
+  credentialFormats: {
+    anoncreds: {
+      credentialDefinitionId: 'did:example:123/resources/credential-def',
+      attributes: [
+        { name: 'name', value: 'Alice Smith' },
+        { name: 'degree', value: 'Computer Science' },
+        { name: 'date', value: '2024-01-01' },
+      ],
+    },
+  },
+})
+```
+
+### Accept a Credential Offer
+
+```typescript
+// Listen for credential offers
+agent.events.on(
+  DidCommCredentialEventTypes.DidCommCredentialStateChanged,
+  async (event) => {
+    const { credentialExchangeRecord } = event.payload
+
+    if (credentialExchangeRecord.state === 'offer-received') {
+      await agent.didcomm.credentials.acceptOffer({
+        credentialExchangeRecordId: credentialExchangeRecord.id,
+      })
+    }
+  }
+)
+```
+
+## Proof Protocols
+
+Configure proof exchange protocols:
+
+```typescript
+import {
+  DidCommProofV2Protocol,
+  AnonCredsDidCommProofFormatService,
+} from '@credo-ts/didcomm'
+
+new DidCommModule({
+  proofs: {
+    proofProtocols: [
+      new DidCommProofV2Protocol({
+        proofFormats: [
+          new AnonCredsDidCommProofFormatService(),
+        ],
+      }),
+    ],
+  },
+})
+```
+
+## Requesting Proofs
+
+### Request a Proof
+
+```typescript
+await agent.didcomm.proofs.requestProof({
+  connectionId: connectionRecord.id,
+  protocolVersion: 'v2',
+  proofFormats: {
+    anoncreds: {
+      name: 'proof-request',
+      version: '1.0',
+      requested_attributes: {
+        name: {
+          name: 'name',
+          restrictions: [
+            { cred_def_id: credDefId },
+          ],
+        },
+      },
+    },
+  },
+})
+```
+
+### Accept a Proof Request
+
+```typescript
+// Select credentials for the request
+const requestedCredentials = await agent.didcomm.proofs.selectCredentialsForRequest({
+  proofExchangeRecordId: proofRecord.id,
+})
+
+// Accept the request
+await agent.didcomm.proofs.acceptRequest({
+  proofExchangeRecordId: proofRecord.id,
+  proofFormats: requestedCredentials.proofFormats,
+})
+```
+
+## Basic Messaging
+
+Send simple text messages over established connections:
+
+```typescript
+await agent.didcomm.basicMessages.sendMessage(
+  connectionRecord.id,
+  'Hello from my agent!'
+)
+
+// Listen for messages
+agent.events.on(
+  DidCommBasicMessageEventTypes.DidCommBasicMessageReceived,
+  (event) => {
+    console.log('Received:', event.payload.message.content)
+  }
+)
+```
+
+## Advanced Configuration
+
+### DID Key in Protocols
+
+Use `did:key` format instead of naked keys (RFC 0360):
+
+```typescript
+new DidCommModule({
+  useDidKeyInProtocols: true, // Default: true
+})
+```
+
+### DID:SOV Prefix
+
+Use legacy `did:sov` prefix where allowed:
+
+```typescript
+new DidCommModule({
+  useDidSovPrefixWhereAllowed: true, // Default: false
+})
+```
+
+### Message Processing
+
+Process messages concurrently instead of sequentially:
+
+```typescript
+new DidCommModule({
+  processDidCommMessagesConcurrently: true, // Default: false
+})
+```
+
+<Warning>
+Enabling concurrent message processing may cause race conditions in some scenarios. Test thoroughly.
+</Warning>
+
+### MIME Type
+
+Customize the DIDComm MIME type:
+
+```typescript
+import { DidCommMimeType } from '@credo-ts/didcomm'
+
+new DidCommModule({
+  didCommMimeType: DidCommMimeType.V1, // Default
+})
+```
+
+## Module Sub-APIs
+
+The DidCommModule exposes several sub-modules:
+
+```typescript
+// Connections
+await agent.didcomm.connections.getAll()
+
+// Out-of-Band invitations
+await agent.didcomm.oob.createInvitation()
+
+// Credentials
+await agent.didcomm.credentials.getAll()
+
+// Proofs
+await agent.didcomm.proofs.getAll()
+
+// Basic messages
+await agent.didcomm.basicMessages.sendMessage(...)
+
+// Message pickup
+await agent.didcomm.messagePickup.pickupMessages(...)
+
+// Mediation
+await agent.didcomm.mediationRecipient.provision(...)
+```
+
+## Disabling Modules
+
+You can disable specific sub-modules:
+
+```typescript
+new DidCommModule({
+  credentials: false, // Disable credentials
+  proofs: false,      // Disable proofs
+  basicMessages: false, // Disable basic messages
+  messagePickup: false, // Disable message pickup
+  mediator: false,      // Disable mediator
+  mediationRecipient: false, // Disable mediation recipient
+})
+```
+
+## Complete Example
+
+Here's a complete example from the Credo demo:
+
+```typescript
+import { Agent } from '@credo-ts/core'
+import {
+  DidCommModule,
+  DidCommAutoAcceptCredential,
+  DidCommAutoAcceptProof,
+  DidCommCredentialV2Protocol,
+  DidCommProofV2Protocol,
+  DidCommHttpOutboundTransport,
+} from '@credo-ts/didcomm'
+import {
+  AnonCredsDidCommCredentialFormatService,
+  AnonCredsDidCommProofFormatService,
+} from '@credo-ts/anoncreds'
+import {
+  agentDependencies,
+  DidCommHttpInboundTransport,
+} from '@credo-ts/node'
+
+const agent = new Agent({
+  config: {},
+  dependencies: agentDependencies,
+  modules: {
+    didcomm: new DidCommModule({
+      endpoints: ['http://localhost:3000'],
+      transports: {
+        inbound: [new DidCommHttpInboundTransport({ port: 3000 })],
+        outbound: [new DidCommHttpOutboundTransport()],
+      },
+      connections: {
+        autoAcceptConnections: true,
+      },
+      credentials: {
+        autoAcceptCredentials: DidCommAutoAcceptCredential.ContentApproved,
+        credentialProtocols: [
+          new DidCommCredentialV2Protocol({
+            credentialFormats: [
+              new AnonCredsDidCommCredentialFormatService(),
+            ],
+          }),
+        ],
+      },
+      proofs: {
+        autoAcceptProofs: DidCommAutoAcceptProof.ContentApproved,
+        proofProtocols: [
+          new DidCommProofV2Protocol({
+            proofFormats: [
+              new AnonCredsDidCommProofFormatService(),
+            ],
+          }),
+        ],
+      },
+    }),
+  },
+})
+
+await agent.initialize()
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="AnonCreds" icon="shield" href="./anoncreds">
+    Enable privacy-preserving credentials with AnonCreds
+  </Card>
+  <Card title="OpenID4VC" icon="id-card" href="./openid4vc">
+    Use OpenID for Verifiable Credentials
+  </Card>
+  <Card title="Multi-Tenancy" icon="users" href="./multi-tenancy">
+    Set up multi-tenant DIDComm agents
+  </Card>
+  <Card title="Platform Setup" icon="server" href="./platform-setup">
+    Configure transports for your platform
+  </Card>
+</CardGroup>

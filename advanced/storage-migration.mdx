@@ -1,0 +1,377 @@
+---
+title: "Storage Migration and Updates"
+description: "Learn how to handle storage schema updates and data migrations in Credo"
+---
+
+## Overview
+
+As your application evolves, you may need to update the structure of stored data. Credo provides a robust migration system through the `UpdateAssistant` and module update scripts.
+
+## Storage Versioning
+
+Credo tracks the storage version to determine when migrations are needed. The framework maintains a `StorageVersionRecord` that stores the current version.
+
+### Current Storage Version
+
+```typescript
+import { StorageUpdateService } from '@credo-ts/core'
+
+const storageUpdateService = agent.dependencyManager.resolve(StorageUpdateService)
+const currentVersion = await storageUpdateService.getCurrentStorageVersion(agent.context)
+
+console.log('Current storage version:', currentVersion) // e.g., "0.5"
+```
+
+### Framework Storage Version
+
+```typescript
+import { UpdateAssistant } from '@credo-ts/core'
+
+const frameworkVersion = UpdateAssistant.frameworkStorageVersion
+console.log('Framework storage version:', frameworkVersion) // e.g., "0.5"
+```
+
+## Update Assistant
+
+The `UpdateAssistant` orchestrates storage migrations:
+
+```typescript
+import { Agent, UpdateAssistant } from '@credo-ts/core'
+
+const agent = new Agent({
+  config: {
+    label: 'My Agent',
+    walletConfig: {
+      id: 'my-agent',
+      key: 'my-secret-key',
+    },
+  },
+})
+
+// Create update assistant
+const updateAssistant = new UpdateAssistant(agent)
+
+// Check if update is needed
+const isUpToDate = await updateAssistant.isUpToDate()
+
+if (!isUpToDate) {
+  const currentVersion = await updateAssistant.getCurrentAgentStorageVersion()
+  console.log(`Storage at version ${currentVersion} needs update`)
+  
+  // Perform the update
+  await updateAssistant.update()
+}
+
+// Now initialize the agent
+await agent.initialize()
+```
+
+<Warning>
+The `UpdateAssistant` must be used **before** calling `agent.initialize()`. Attempting to create an `UpdateAssistant` after initialization will throw an error.
+</Warning>
+
+## Checking Required Updates
+
+Get a list of all updates that need to be applied:
+
+```typescript
+const neededUpdates = await updateAssistant.getNeededUpdates()
+
+for (const update of neededUpdates) {
+  console.log(`Update: ${update.fromVersion} -> ${update.toVersion}`)
+}
+```
+
+## Partial Updates
+
+You can update to a specific version instead of the latest:
+
+```typescript
+// Update only to version 0.4
+await updateAssistant.update({
+  updateToVersion: '0.4'
+})
+```
+
+## Creating Module Updates
+
+Modules can provide their own update scripts that run during framework updates.
+
+### Update Interface
+
+```typescript
+export interface Update {
+  fromVersion: VersionString
+  toVersion: VersionString
+  doUpdate: <Agent extends BaseAgent>(agent: Agent, updateConfig: UpdateConfig) => Promise<void>
+}
+```
+
+### Basic Module Update
+
+Add update scripts to your module:
+
+```typescript
+import { Module, Update, BaseAgent } from '@credo-ts/core'
+
+export class MyCustomModule implements Module {
+  register(dependencyManager: DependencyManager) {
+    // Register services
+  }
+
+  // Define update scripts
+  updates = [
+    {
+      fromVersion: '0.3.1',
+      toVersion: '0.4',
+      doUpdate: this.updateToV0_4,
+    },
+    {
+      fromVersion: '0.4',
+      toVersion: '0.5',
+      doUpdate: this.updateToV0_5,
+    },
+  ] satisfies Update[]
+
+  private async updateToV0_4(agent: BaseAgent) {
+    // Migration logic for 0.3.1 -> 0.4
+    agent.config.logger.info('Updating MyCustomModule to 0.4')
+    
+    // Example: migrate records
+    const records = await agent.context.storageService.getAll(agent.context, MyRecord)
+    
+    for (const record of records) {
+      // Update record structure
+      record.newField = transformOldField(record.oldField)
+      await agent.context.storageService.update(agent.context, record)
+    }
+  }
+
+  private async updateToV0_5(agent: BaseAgent) {
+    // Migration logic for 0.4 -> 0.5
+    agent.config.logger.info('Updating MyCustomModule to 0.5')
+  }
+}
+```
+
+### Real Example: AnonCreds Module
+
+Here's how the AnonCreds module handles updates:
+
+```typescript
+import { Module, Update } from '@credo-ts/core'
+import { updateAnonCredsModuleV0_3_1ToV0_4 } from './updates/0.3.1-0.4'
+import { updateAnonCredsModuleV0_4ToV0_5 } from './updates/0.4-0.5'
+
+export class AnonCredsModule implements Module {
+  public readonly config: AnonCredsModuleConfig
+  public api = AnonCredsApi
+
+  register(dependencyManager: DependencyManager) {
+    // Registration logic
+  }
+
+  public updates = [
+    {
+      fromVersion: '0.3.1',
+      toVersion: '0.4',
+      doUpdate: updateAnonCredsModuleV0_3_1ToV0_4,
+    },
+    {
+      fromVersion: '0.4',
+      toVersion: '0.5',
+      doUpdate: updateAnonCredsModuleV0_4ToV0_5,
+    },
+  ] satisfies Update[]
+}
+```
+
+### Update Implementation
+
+The actual update logic is typically organized in separate files:
+
+```typescript
+// updates/0.3.1-0.4/index.ts
+import type { BaseAgent } from '@credo-ts/core'
+import { migrateCredentialDefinitions } from './credentialDefinition'
+import { migrateSchemas } from './schema'
+import { migrateLinkSecrets } from './linkSecret'
+
+export async function updateAnonCredsModuleV0_3_1ToV0_4<Agent extends BaseAgent>(
+  agent: Agent
+): Promise<void> {
+  await migrateCredentialDefinitions(agent)
+  await migrateLinkSecrets(agent)
+  await migrateSchemas(agent)
+}
+```
+
+## Update Execution Flow
+
+When `updateAssistant.update()` is called:
+
+1. **Determine needed updates**: Compare current storage version with framework version
+2. **Validate update path**: Ensure all intermediate updates are available
+3. **Execute updates sequentially**: For each update:
+   - Run core framework update
+   - Find all modules with matching update scripts
+   - Execute module update scripts
+   - Update storage version
+4. **Handle errors**: If any update fails, the process stops and logs the error
+
+## Storage Update Service
+
+The `StorageUpdateService` manages version tracking:
+
+```typescript
+import { StorageUpdateService, AgentContext } from '@credo-ts/core'
+
+@injectable()
+export class StorageUpdateService {
+  // Check if storage is up to date
+  async isUpToDate(agentContext: AgentContext, updateToVersion?: UpdateToVersion): Promise<boolean>
+
+  // Get current storage version
+  async getCurrentStorageVersion(agentContext: AgentContext): Promise<VersionString>
+
+  // Set storage version (used by update process)
+  async setCurrentStorageVersion(agentContext: AgentContext, storageVersion: VersionString): Promise<void>
+
+  // Check if version record exists
+  async hasStorageVersionRecord(agentContext: AgentContext): Promise<boolean>
+}
+```
+
+## Update Configuration
+
+Some updates may require configuration:
+
+```typescript
+const updateConfig = {
+  v0_1ToV0_2: {
+    mediationRoleUpdateStrategy: 'recipientIfEndpoint' // or 'allMediator' | 'allRecipient' | 'doNotChange'
+  }
+}
+
+const updateAssistant = new UpdateAssistant(agent, updateConfig)
+await updateAssistant.update()
+```
+
+## Best Practices
+
+### 1. Always Check Before Initialize
+
+```typescript
+const agent = new Agent({ /* config */ })
+const updateAssistant = new UpdateAssistant(agent)
+
+if (!await updateAssistant.isUpToDate()) {
+  await updateAssistant.update()
+}
+
+await agent.initialize()
+```
+
+### 2. Handle Update Errors
+
+```typescript
+try {
+  await updateAssistant.update()
+} catch (error) {
+  if (error instanceof StorageUpdateError) {
+    console.error('Storage update failed:', error.message)
+    // Handle error appropriately
+  }
+  throw error
+}
+```
+
+### 3. Version Your Module Updates
+
+Align your module updates with Credo framework versions:
+
+```typescript
+public updates = [
+  {
+    fromVersion: '0.3.1',  // Match framework versions
+    toVersion: '0.4',
+    doUpdate: updateToV0_4,
+  },
+] satisfies Update[]
+```
+
+### 4. Test Updates Thoroughly
+
+Create test cases for your update scripts:
+
+```typescript
+describe('MyModule Update 0.3.1 -> 0.4', () => {
+  it('should migrate records correctly', async () => {
+    // Set up agent with 0.3.1 data
+    // Run update
+    // Verify data integrity
+  })
+})
+```
+
+### 5. Log Update Progress
+
+```typescript
+private async updateToV0_4(agent: BaseAgent) {
+  agent.config.logger.info('Starting MyModule update to 0.4')
+  
+  const records = await getRecordsToMigrate(agent)
+  agent.config.logger.info(`Migrating ${records.length} records`)
+  
+  // Perform migration
+  
+  agent.config.logger.info('MyModule update to 0.4 completed')
+}
+```
+
+<Warning>
+**Breaking Changes**: If your update involves breaking changes to record structures, ensure that:
+- Old data can be safely migrated to the new structure
+- The update is idempotent (safe to run multiple times)
+- You handle edge cases where records might be partially migrated
+</Warning>
+
+## Troubleshooting
+
+### Storage Version Mismatch
+
+If you see errors about storage version mismatches:
+
+```typescript
+// Check current version
+const currentVersion = await updateAssistant.getCurrentAgentStorageVersion()
+const frameworkVersion = UpdateAssistant.frameworkStorageVersion
+
+console.log(`Current: ${currentVersion}, Framework: ${frameworkVersion}`)
+
+// Get list of needed updates
+const updates = await updateAssistant.getNeededUpdates()
+console.log('Needed updates:', updates)
+```
+
+### Update Too Old
+
+If the storage version is too old:
+
+```
+Error: First fromVersion is higher than current storage version. 
+You need to use an older version of the framework to update to at least version 0.3
+```
+
+Solution: Update incrementally through intermediate framework versions.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Custom Modules" icon="puzzle-piece" href="/advanced/custom-modules">
+    Learn how to create modules with update scripts
+  </Card>
+  <Card title="Storage Service" icon="database" href="/api-reference/storage">
+    API reference for storage operations
+  </Card>
+</CardGroup>

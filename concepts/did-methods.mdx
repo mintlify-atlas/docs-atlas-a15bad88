@@ -1,0 +1,494 @@
+---
+title: DID Methods
+description: Supported DID methods in Credo
+---
+
+Credo supports multiple DID (Decentralized Identifier) methods for creating and resolving decentralized identities. Each DID method has different characteristics, use cases, and requirements.
+
+## Overview
+
+DID methods are implemented through registrars (for creation) and resolvers (for resolution). Credo's `DidsModule` manages both registrars and resolvers, allowing you to work with multiple DID methods simultaneously.
+
+```typescript
+import { DidsModule } from '@credo-ts/core'
+
+const agent = new Agent({
+  modules: {
+    dids: new DidsModule({
+      registrars: [/* custom registrars */],
+      resolvers: [/* custom resolvers */],
+    }),
+  },
+})
+```
+
+## Core DID Methods
+
+The following DID methods are supported in the `@credo-ts/core` package:
+
+### did:key
+
+The `did:key` method is a self-contained DID method that derives the DID directly from a public key.
+
+**Features:**
+- No blockchain or ledger required
+- Cryptographically self-verifying
+- Instant creation with no network calls
+- Always required for Credo to function
+
+**Example:**
+```typescript
+const result = await agent.dids.create({
+  method: 'key',
+  options: {
+    keyType: 'ed25519',
+  },
+})
+
+// Result: did:key:z6MkpTHR8VNsBxYAAWHut2Geadd9jSwuBV8xRoAnwWsdvktH
+```
+
+**When to use:**
+- Quick DID creation without infrastructure
+- Testing and development
+- Simple peer-to-peer connections
+- Short-lived identifiers
+
+<Info>
+The `KeyDidRegistrar` and `KeyDidResolver` are always registered in Credo, even if you provide custom registrars/resolvers, as they are required for core functionality.
+</Info>
+
+### did:peer
+
+The `did:peer` method creates peer-to-peer DIDs for private relationships.
+
+**Features:**
+- Multiple algorithms (numalgo 0, 1, 2, 4)
+- Off-ledger DID method
+- Perfect for DIDComm connections
+- Always required for Credo to function
+
+**NumAlgo Variants:**
+
+<Tabs>
+  <Tab title="NumAlgo 0">
+    Inception key-based DID. The simplest form, similar to did:key.
+    
+    ```typescript
+    const result = await agent.dids.create({
+      method: 'peer',
+      options: {
+        numAlgo: 0,
+        createKey: { keyType: 'ed25519' },
+      },
+    })
+    ```
+  </Tab>
+  
+  <Tab title="NumAlgo 1">
+    Genesis version of a DID Document. Created from a complete DID Document.
+    
+    ```typescript
+    const result = await agent.dids.create({
+      method: 'peer',
+      options: {
+        numAlgo: 1,
+        didDocument: myDidDocument,
+      },
+    })
+    ```
+  </Tab>
+  
+  <Tab title="NumAlgo 2">
+    Multiple inception keys. Most commonly used for DIDComm.
+    
+    ```typescript
+    const result = await agent.dids.create({
+      method: 'peer',
+      options: {
+        numAlgo: 2,
+        createKeys: [
+          { keyType: 'ed25519', purpose: 'authentication' },
+          { keyType: 'x25519', purpose: 'keyAgreement' },
+        ],
+        services: [{
+          id: 'didcomm',
+          type: 'DIDComm',
+          serviceEndpoint: 'https://example.com/didcomm',
+        }],
+      },
+    })
+    ```
+  </Tab>
+  
+  <Tab title="NumAlgo 4">
+    Short form with long form resolution. Provides a compact DID with full resolution.
+    
+    ```typescript
+    const result = await agent.dids.create({
+      method: 'peer',
+      options: {
+        numAlgo: 4,
+        didDocument: myDidDocument,
+      },
+    })
+    ```
+  </Tab>
+</Tabs>
+
+**When to use:**
+- DIDComm connections and messaging
+- Peer-to-peer relationships
+- Private, pairwise identifiers
+- No need for public discoverability
+
+<Info>
+The `PeerDidRegistrar` and `PeerDidResolver` are always registered in Credo, as they are essential for the DIDComm and connection modules.
+</Info>
+
+Source: `packages/core/src/modules/dids/methods/peer/PeerDidRegistrar.ts:17`
+
+### did:web
+
+The `did:web` method uses web domains for DID hosting.
+
+**Features:**
+- DIDs hosted at HTTPS endpoints
+- Uses existing web infrastructure
+- Good for organizations with established domains
+- Resolver included by default
+
+**Example:**
+```typescript
+// Resolution (registrar requires external setup)
+const result = await agent.dids.resolve('did:web:example.com')
+
+// The DID Document is fetched from:
+// https://example.com/.well-known/did.json
+```
+
+**When to use:**
+- Organizations with existing web presence
+- Public DIDs that need to be easily discoverable
+- Integration with existing web infrastructure
+- SEO and web-based verification
+
+<Note>
+The `did:web` method requires you to host the DID Document at the appropriate HTTPS endpoint. Only the resolver is provided by default; creation must be handled externally.
+</Note>
+
+### did:jwk
+
+The `did:jwk` method embeds a JSON Web Key in the DID.
+
+**Features:**
+- Self-contained like did:key
+- Uses standard JWK format
+- Good for JWT-based workflows
+- No external dependencies
+
+**Example:**
+```typescript
+const result = await agent.dids.create({
+  method: 'jwk',
+  options: {
+    keyType: 'ed25519',
+  },
+})
+
+// Result: did:jwk:eyJrdHkiOiJPS1AiLCJjcnYiOiJFZDI1NTE5IiwieCI6IjAuLi4ifQ
+```
+
+**When to use:**
+- JWT and JWS workflows
+- OpenID4VC implementations
+- SD-JWT credentials
+- W3C VC with JWT proof format
+
+## Ledger-Based DID Methods
+
+The following DID methods require separate packages and interact with blockchain networks:
+
+### did:sov and did:indy
+
+Hyperledger Indy-based DID methods for public and permissioned ledgers.
+
+**Package:** `@credo-ts/indy-vdr`
+
+**Features:**
+- Built for the Hyperledger Indy ecosystem
+- Supports credential revocation
+- Production-ready for AnonCreds workflows
+- Interoperable with Sovrin, Indicio, and other Indy networks
+
+**Example:**
+```typescript
+import { IndyVdrModule } from '@credo-ts/indy-vdr'
+import { indyVdr } from '@hyperledger/indy-vdr-nodejs'
+
+const agent = new Agent({
+  modules: {
+    indyVdr: new IndyVdrModule({
+      indyVdr,
+      networks: [
+        {
+          isProduction: false,
+          indyNamespace: 'bcovrin:test',
+          genesisTransactions: '...', 
+          connectOnStartup: true,
+        },
+      ],
+    }),
+  },
+})
+
+// Create did:indy
+const result = await agent.dids.create({
+  method: 'indy',
+  options: {
+    endorserMode: 'internal',
+    endorserDid: 'did:indy:bcovrin:test:...',
+  },
+})
+```
+
+**When to use:**
+- AnonCreds credential workflows
+- Hyperledger Indy networks
+- Production SSI implementations
+- Revocation support required
+
+### did:cheqd
+
+Cheqd network DIDs with on-chain DID Documents.
+
+**Package:** `@credo-ts/cheqd`
+
+**Features:**
+- Decentralized network with economic incentives
+- Support for on-chain resources
+- Payment rails for credential exchange
+- Production-ready mainnet
+
+**Example:**
+```typescript
+import { CheqdModule } from '@credo-ts/cheqd'
+
+const agent = new Agent({
+  modules: {
+    cheqd: new CheqdModule({
+      networks: [
+        {
+          network: 'testnet',
+          rpcUrl: 'https://rpc.cheqd.network',
+        },
+      ],
+    }),
+  },
+})
+
+const result = await agent.dids.create({
+  method: 'cheqd',
+  options: {
+    network: 'testnet',
+  },
+})
+```
+
+**When to use:**
+- Projects requiring payment rails
+- On-chain resource management
+- Production verifiable credentials
+- Decentralized network infrastructure
+
+### did:hedera
+
+Hedera Hashgraph DIDs for high-throughput applications.
+
+**Package:** `@credo-ts/hedera`
+
+**Features:**
+- High transaction throughput
+- Low, predictable fees
+- Enterprise-grade network
+- ABFT consensus
+
+**Example:**
+```typescript
+import { HederaModule } from '@credo-ts/hedera'
+
+const agent = new Agent({
+  modules: {
+    hedera: new HederaModule({
+      network: 'testnet',
+    }),
+  },
+})
+
+const result = await agent.dids.create({
+  method: 'hedera',
+  options: {
+    network: 'testnet',
+  },
+})
+```
+
+**When to use:**
+- High-throughput applications
+- Enterprise environments
+- Predictable cost requirements
+- Fast finality needed
+
+## Configuring DID Methods
+
+### Default Configuration
+
+By default, Credo includes these registrars and resolvers:
+
+```typescript
+// Default registrars
+[
+  new KeyDidRegistrar(),
+  new PeerDidRegistrar(),
+  new JwkDidRegistrar(),
+]
+
+// Default resolvers
+[
+  new WebDidResolver(),
+  new KeyDidResolver(),
+  new PeerDidResolver(),
+  new JwkDidResolver(),
+]
+```
+
+Source: `packages/core/src/modules/dids/DidsModuleConfig.ts:57`
+
+### Custom Configuration
+
+You can customize which DID methods are available:
+
+```typescript
+import {
+  DidsModule,
+  KeyDidRegistrar,
+  KeyDidResolver,
+  PeerDidRegistrar,
+  PeerDidResolver,
+  WebDidResolver,
+} from '@credo-ts/core'
+
+const agent = new Agent({
+  modules: {
+    dids: new DidsModule({
+      // Only these registrars will be available
+      registrars: [
+        new KeyDidRegistrar(),
+        new PeerDidRegistrar(),
+      ],
+      // Only these resolvers will be available
+      resolvers: [
+        new KeyDidResolver(),
+        new PeerDidResolver(),
+        new WebDidResolver(),
+      ],
+    }),
+  },
+})
+```
+
+<Warning>
+Even if you don't include `KeyDidRegistrar`, `KeyDidResolver`, `PeerDidRegistrar`, or `PeerDidResolver` in your configuration, they will be automatically added as they are required for Credo's core functionality.
+</Warning>
+
+## DID Operations
+
+### Creating DIDs
+
+```typescript
+const result = await agent.dids.create({
+  method: 'key',
+  options: {
+    keyType: 'ed25519',
+  },
+})
+
+if (result.didState.state === 'finished') {
+  console.log('Created DID:', result.didState.did)
+  console.log('DID Document:', result.didState.didDocument)
+}
+```
+
+### Resolving DIDs
+
+```typescript
+const result = await agent.dids.resolve('did:key:z6MkpTHR8VNsBxYAAWHut2Geadd9jSwuBV8xRoAnwWsdvktH')
+
+if (result.didDocument) {
+  console.log('Resolved DID Document:', result.didDocument)
+  console.log('Verification Methods:', result.didDocument.verificationMethod)
+}
+```
+
+### Importing DIDs
+
+```typescript
+// Import an existing DID
+const importResult = await agent.dids.import({
+  did: 'did:key:z6MkpTHR8VNsBxYAAWHut2Geadd9jSwuBV8xRoAnwWsdvktH',
+  overwrite: false,
+})
+```
+
+## DID Method Selection Guide
+
+<Info>
+**Quick Selection Guide:**
+
+**For Development/Testing:**
+- Use `did:key` or `did:peer` for quick setup
+- No infrastructure required
+- Fast iteration
+
+**For DIDComm:**
+- Use `did:peer` (numalgo 2)
+- Perfect for private connections
+- Required for DIDComm protocols
+
+**For Public DIDs:**
+- Use `did:web` if you have a domain
+- Use `did:cheqd` or `did:hedera` for public discoverability
+- Use `did:indy` for Hyperledger Indy networks
+
+**For Credentials:**
+- Use `did:jwk` for JWT-based credentials
+- Use `did:indy` for AnonCreds
+- Use `did:key` for simple W3C VCs
+- Use `did:cheqd` or `did:hedera` for production
+</Info>
+
+## Best Practices
+
+<Info>
+**Security:**
+- Store private keys securely using the agent's key management system
+- Use production networks for production DIDs
+- Rotate keys when necessary using DID Document updates (method-dependent)
+
+**Performance:**
+- Cache resolved DID Documents when appropriate
+- Use lightweight methods (did:key, did:peer) for temporary identifiers
+- Consider network latency for ledger-based methods
+
+**Interoperability:**
+- Use standard DID methods when possible
+- Document which DID methods your application supports
+- Test resolution across different implementations
+</Info>
+
+## Related Topics
+
+- [Agent](/concepts/agent) - Learn about agent architecture
+- [Modules](/concepts/modules) - Understand the module system
+- [Verifiable Credentials](/concepts/verifiable-credentials) - Using DIDs with credentials
+- [Storage](/concepts/storage) - DID storage and management

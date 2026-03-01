@@ -1,0 +1,547 @@
+---
+title: 'DIDComm APIs'
+description: 'DIDComm protocol APIs for connections, credentials, and proofs'
+---
+
+## Overview
+
+The DIDComm module provides APIs for working with DIDComm protocols, enabling secure, encrypted messaging between agents.
+
+Available when the DIDComm module is registered:
+
+```typescript
+import { DidCommModule } from '@credo-ts/didcomm'
+import { Agent } from '@credo-ts/core'
+
+const agent = new Agent({
+  // ...
+  modules: {
+    didcomm: new DidCommModule(),
+  },
+})
+
+await agent.initialize()
+
+// Access DIDComm APIs
+const connections = agent.didcomm.connections
+const credentials = agent.didcomm.credentials  
+const proofs = agent.didcomm.proofs
+```
+
+## ConnectionsApi
+
+Manage DIDComm connections between agents.
+
+### acceptOutOfBandInvitation()
+
+Accept an out-of-band invitation to establish a connection.
+
+```typescript
+// Parse invitation
+const invitation = await agent.didcomm.oob.parseInvitation(invitationUrl)
+const oobRecord = await agent.didcomm.oob.receiveInvitation(invitation)
+
+// Accept invitation
+const connectionRecord = await agent.didcomm.connections.acceptOutOfBandInvitation(
+  oobRecord,
+  {
+    label: 'My Agent',
+    protocol: DidCommHandshakeProtocol.DidExchange,
+    autoAcceptConnection: true,
+  }
+)
+
+console.log('Connection:', connectionRecord.id)
+```
+
+<ParamField path="outOfBandRecord" type="DidCommOutOfBandRecord" required>
+  Out-of-band record from received invitation
+</ParamField>
+
+<ParamField path="config" type="object" required>
+  Configuration:
+  - `label`: Agent label
+  - `protocol`: Handshake protocol ('did-exchange' or 'connections')
+  - `autoAcceptConnection`: Auto-accept connection
+  - `alias`: Optional connection alias
+  - `routing`: Optional routing configuration
+</ParamField>
+
+**Returns:** `Promise<DidCommConnectionRecord>`
+
+### acceptRequest()
+
+Accept a connection request (as inviter).
+
+```typescript
+const connectionRecord = await agent.didcomm.connections.acceptRequest(
+  connectionId
+)
+```
+
+<ParamField path="connectionId" type="string" required>
+  Connection record ID
+</ParamField>
+
+**Returns:** `Promise<DidCommConnectionRecord>`
+
+### acceptResponse()
+
+Accept a connection response (as invitee).
+
+```typescript
+const connectionRecord = await agent.didcomm.connections.acceptResponse(
+  connectionId
+)
+```
+
+<ParamField path="connectionId" type="string" required>
+  Connection record ID
+</ParamField>
+
+**Returns:** `Promise<DidCommConnectionRecord>`
+
+### sendPing()
+
+Send a trust ping to test connection.
+
+```typescript
+const message = await agent.didcomm.connections.sendPing(connectionId, {
+  responseRequested: true,
+})
+```
+
+<ParamField path="connectionId" type="string" required>
+  Connection ID
+</ParamField>
+
+<ParamField path="options" type="SendPingOptions" optional>
+  - `responseRequested`: Request response ping
+  - `withReturnRouting`: Use return routing
+</ParamField>
+
+**Returns:** `Promise<TrustPingMessage>`
+
+### getAll()
+
+Retrieve all connections.
+
+```typescript
+const connections = await agent.didcomm.connections.getAll()
+```
+
+**Returns:** `Promise<DidCommConnectionRecord[]>`
+
+### getById()
+
+Retrieve connection by ID.
+
+```typescript
+const connection = await agent.didcomm.connections.getById(connectionId)
+```
+
+<ParamField path="connectionId" type="string" required>
+  Connection ID
+</ParamField>
+
+**Returns:** `Promise<DidCommConnectionRecord>`
+
+### findAllByQuery()
+
+Find connections by query.
+
+```typescript
+const connections = await agent.didcomm.connections.findAllByQuery(
+  { state: DidCommConnectionState.Completed },
+  { limit: 10 }
+)
+```
+
+<ParamField path="query" type="Query<DidCommConnectionRecord>" required>
+  Query object
+</ParamField>
+
+<ParamField path="queryOptions" type="QueryOptions" optional>
+  Query options (limit, offset)
+</ParamField>
+
+**Returns:** `Promise<DidCommConnectionRecord[]>`
+
+### deleteById()
+
+Delete a connection.
+
+```typescript
+await agent.didcomm.connections.deleteById(connectionId)
+```
+
+<ParamField path="connectionId" type="string" required>
+  Connection ID
+</ParamField>
+
+**Returns:** `Promise<void>`
+
+## CredentialsApi
+
+Issue and receive credentials using DIDComm protocols.
+
+### offerCredential()
+
+Offer a credential to a connection (issuer).
+
+```typescript
+const credentialRecord = await agent.didcomm.credentials.offerCredential({
+  connectionId,
+  protocolVersion: 'v2',
+  credentialFormats: {
+    anoncreds: {
+      credentialDefinitionId,
+      attributes: [
+        { name: 'name', value: 'Alice Smith' },
+        { name: 'degree', value: 'Bachelor of Science' },
+      ],
+    },
+  },
+  autoAcceptCredential: AutoAcceptCredential.ContentApproved,
+})
+```
+
+<ParamField path="options.connectionId" type="string" required>
+  Connection ID
+</ParamField>
+
+<ParamField path="options.protocolVersion" type="string" required>
+  Protocol version ('v1' or 'v2')
+</ParamField>
+
+<ParamField path="options.credentialFormats" type="object" required>
+  Format-specific credential data
+</ParamField>
+
+<ParamField path="options.autoAcceptCredential" type="AutoAcceptCredential" optional>
+  Auto-accept behavior
+</ParamField>
+
+**Returns:** `Promise<DidCommCredentialExchangeRecord>`
+
+### acceptOffer()
+
+Accept a credential offer (holder).
+
+```typescript
+const credentialRecord = await agent.didcomm.credentials.acceptOffer({
+  credentialExchangeRecordId,
+  autoAcceptCredential: AutoAcceptCredential.Always,
+})
+```
+
+<ParamField path="options.credentialExchangeRecordId" type="string" required>
+  Credential exchange record ID
+</ParamField>
+
+<ParamField path="options.credentialFormats" type="object" optional>
+  Format-specific options
+</ParamField>
+
+**Returns:** `Promise<DidCommCredentialExchangeRecord>`
+
+### acceptRequest()
+
+Accept a credential request and issue credential (issuer).
+
+```typescript
+const credentialRecord = await agent.didcomm.credentials.acceptRequest({
+  credentialExchangeRecordId,
+  credentialFormats: {
+    anoncreds: {
+      // Final credential values
+    },
+  },
+})
+```
+
+<ParamField path="options.credentialExchangeRecordId" type="string" required>
+  Credential exchange record ID
+</ParamField>
+
+<ParamField path="options.credentialFormats" type="object" optional>
+  Format-specific credential data
+</ParamField>
+
+**Returns:** `Promise<DidCommCredentialExchangeRecord>`
+
+### acceptCredential()
+
+Accept a received credential (holder).
+
+```typescript
+const credentialRecord = await agent.didcomm.credentials.acceptCredential({
+  credentialExchangeRecordId,
+})
+```
+
+<ParamField path="options.credentialExchangeRecordId" type="string" required>
+  Credential exchange record ID
+</ParamField>
+
+**Returns:** `Promise<DidCommCredentialExchangeRecord>`
+
+### getAll()
+
+Retrieve all credential exchange records.
+
+```typescript
+const records = await agent.didcomm.credentials.getAll()
+```
+
+**Returns:** `Promise<DidCommCredentialExchangeRecord[]>`
+
+### getById()
+
+Retrieve credential exchange record by ID.
+
+```typescript
+const record = await agent.didcomm.credentials.getById(credentialExchangeRecordId)
+```
+
+<ParamField path="credentialExchangeRecordId" type="string" required>
+  Credential exchange record ID
+</ParamField>
+
+**Returns:** `Promise<DidCommCredentialExchangeRecord>`
+
+## ProofsApi
+
+Request and present proofs using DIDComm protocols.
+
+### requestProof()
+
+Request a proof from a connection (verifier).
+
+```typescript
+const proofRecord = await agent.didcomm.proofs.requestProof({
+  connectionId,
+  protocolVersion: 'v2',
+  proofFormats: {
+    anoncreds: {
+      name: 'Employment Verification',
+      version: '1.0',
+      requested_attributes: {
+        name: {
+          name: 'name',
+          restrictions: [{ cred_def_id: credDefId }],
+        },
+      },
+      requested_predicates: {
+        age: {
+          name: 'age',
+          p_type: '>=',
+          p_value: 18,
+          restrictions: [{ cred_def_id: credDefId }],
+        },
+      },
+    },
+  },
+})
+```
+
+<ParamField path="options.connectionId" type="string" required>
+  Connection ID
+</ParamField>
+
+<ParamField path="options.protocolVersion" type="string" required>
+  Protocol version ('v1' or 'v2')
+</ParamField>
+
+<ParamField path="options.proofFormats" type="object" required>
+  Format-specific proof request
+</ParamField>
+
+**Returns:** `Promise<DidCommProofExchangeRecord>`
+
+### acceptRequest()
+
+Accept a proof request and send presentation (prover).
+
+```typescript
+// Get credentials for request
+const credentials = await agent.didcomm.proofs.getCredentialsForRequest({
+  proofExchangeRecordId,
+})
+
+// Select credentials
+const selectedCredentials = await agent.didcomm.proofs.selectCredentialsForRequest({
+  proofExchangeRecordId,
+})
+
+// Accept and send proof
+const proofRecord = await agent.didcomm.proofs.acceptRequest({
+  proofExchangeRecordId,
+  proofFormats: selectedCredentials.proofFormats,
+})
+```
+
+<ParamField path="options.proofExchangeRecordId" type="string" required>
+  Proof exchange record ID
+</ParamField>
+
+<ParamField path="options.proofFormats" type="object" required>
+  Format-specific proof data
+</ParamField>
+
+**Returns:** `Promise<DidCommProofExchangeRecord>`
+
+### acceptPresentation()
+
+Accept and verify a received presentation (verifier).
+
+```typescript
+const proofRecord = await agent.didcomm.proofs.acceptPresentation({
+  proofExchangeRecordId,
+})
+
+if (proofRecord.state === DidCommProofState.Done) {
+  console.log('Proof verified successfully')
+}
+```
+
+<ParamField path="options.proofExchangeRecordId" type="string" required>
+  Proof exchange record ID
+</ParamField>
+
+**Returns:** `Promise<DidCommProofExchangeRecord>`
+
+### getCredentialsForRequest()
+
+Get available credentials for a proof request.
+
+```typescript
+const credentials = await agent.didcomm.proofs.getCredentialsForRequest({
+  proofExchangeRecordId,
+})
+
+console.log('Available credentials:', credentials)
+```
+
+<ParamField path="options.proofExchangeRecordId" type="string" required>
+  Proof exchange record ID
+</ParamField>
+
+**Returns:** `Promise<GetCredentialsForProofRequestReturn>`
+
+### selectCredentialsForRequest()
+
+Automatically select credentials for a proof request.
+
+```typescript
+const selected = await agent.didcomm.proofs.selectCredentialsForRequest({
+  proofExchangeRecordId,
+})
+```
+
+<ParamField path="options.proofExchangeRecordId" type="string" required>
+  Proof exchange record ID
+</ParamField>
+
+**Returns:** `Promise<SelectCredentialsForProofRequestReturn>`
+
+### getAll()
+
+Retrieve all proof exchange records.
+
+```typescript
+const records = await agent.didcomm.proofs.getAll()
+```
+
+**Returns:** `Promise<DidCommProofExchangeRecord[]>`
+
+### getById()
+
+Retrieve proof exchange record by ID.
+
+```typescript
+const record = await agent.didcomm.proofs.getById(proofExchangeRecordId)
+```
+
+<ParamField path="proofExchangeRecordId" type="string" required>
+  Proof exchange record ID
+</ParamField>
+
+**Returns:** `Promise<DidCommProofExchangeRecord>`
+
+## Complete Example
+
+```typescript
+import { Agent, AutoAcceptCredential } from '@credo-ts/core'
+import { DidCommModule, DidCommHandshakeProtocol } from '@credo-ts/didcomm'
+
+// Setup agents
+const issuer = new Agent({
+  // ...
+  modules: { didcomm: new DidCommModule() },
+})
+
+const holder = new Agent({
+  // ...
+  modules: { didcomm: new DidCommModule() },
+})
+
+await issuer.initialize()
+await holder.initialize()
+
+// Create out-of-band invitation
+const oobRecord = await issuer.didcomm.oob.createInvitation({
+  label: 'Issuer Agent',
+  handshakeProtocols: [DidCommHandshakeProtocol.DidExchange],
+})
+
+const invitationUrl = oobRecord.outOfBandInvitation.toUrl({ domain: 'https://example.com' })
+
+// Holder accepts invitation
+const holderOobRecord = await holder.didcomm.oob.receiveInvitation(invitationUrl)
+const connection = await holder.didcomm.connections.acceptOutOfBandInvitation(
+  holderOobRecord,
+  {
+    label: 'Holder Agent',
+    protocol: DidCommHandshakeProtocol.DidExchange,
+    autoAcceptConnection: true,
+  }
+)
+
+// Wait for connection to be established
+await holder.didcomm.connections.returnWhenIsConnected(connection.id)
+
+// Issue credential
+const credentialRecord = await issuer.didcomm.credentials.offerCredential({
+  connectionId: oobRecord.connectionId,
+  protocolVersion: 'v2',
+  credentialFormats: {
+    anoncreds: {
+      credentialDefinitionId,
+      attributes: [
+        { name: 'name', value: 'Alice Smith' },
+        { name: 'degree', value: 'Bachelor of Science' },
+      ],
+    },
+  },
+  autoAcceptCredential: AutoAcceptCredential.ContentApproved,
+})
+
+// Request proof
+const proofRecord = await issuer.didcomm.proofs.requestProof({
+  connectionId: oobRecord.connectionId,
+  protocolVersion: 'v2',
+  proofFormats: {
+    anoncreds: {
+      name: 'Degree Verification',
+      version: '1.0',
+      requested_attributes: {
+        degree: {
+          name: 'degree',
+          restrictions: [{ cred_def_id: credentialDefinitionId }],
+        },
+      },
+    },
+  },
+})
+```

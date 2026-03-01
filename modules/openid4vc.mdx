@@ -1,0 +1,335 @@
+---
+title: '@credo-ts/openid4vc'
+description: OpenID for Verifiable Credentials support (OID4VCI, OID4VP)
+---
+
+The OpenID4VC module provides support for OpenID for Verifiable Credentials (OpenID4VC) protocols, enabling standards-compliant credential issuance and verification.
+
+## Overview
+
+This module implements:
+
+- **OpenID for Verifiable Credential Issuance (OID4VCI)** - Issuer and holder roles
+- **OpenID for Verifiable Presentations (OID4VP)** - Verifier and holder roles  
+- **OAuth 2.0** - Authorization flows for credential issuance
+
+## Installation
+
+```bash
+npm install @credo-ts/openid4vc @credo-ts/core
+```
+
+## Module Roles
+
+The module supports three roles:
+
+- **Issuer** - Issue credentials via OID4VCI
+- **Holder** - Receive and present credentials
+- **Verifier** - Request and verify presentations via OID4VP
+
+## Registration
+
+### As Issuer
+
+```typescript
+import { OpenId4VcModule } from '@credo-ts/openid4vc'
+import { Agent } from '@credo-ts/core'
+
+const agent = new Agent({
+  config: { /* ... */ },
+  dependencies: agentDependencies,
+  modules: {
+    openId4Vc: new OpenId4VcModule({
+      issuer: {
+        baseUrl: 'https://issuer.example.com',
+        endpoints: {
+          credential: {
+            credentialEndpoint: '/oid4vci/credential',
+          },
+        },
+      },
+    }),
+  },
+})
+
+await agent.initialize()
+```
+
+### As Verifier
+
+```typescript
+const agent = new Agent({
+  config: { /* ... */ },
+  dependencies: agentDependencies,
+  modules: {
+    openId4Vc: new OpenId4VcModule({
+      verifier: {
+        baseUrl: 'https://verifier.example.com',
+        endpoints: {
+          authorization: {
+            authorizationEndpoint: '/oid4vp/authorize',
+          },
+        },
+      },
+    }),
+  },
+})
+```
+
+### Combined Issuer and Verifier
+
+```typescript
+const agent = new Agent({
+  config: { /* ... */ },
+  dependencies: agentDependencies,
+  modules: {
+    openId4Vc: new OpenId4VcModule({
+      issuer: {
+        baseUrl: 'https://example.com',
+      },
+      verifier: {
+        baseUrl: 'https://example.com',
+      },
+    }),
+  },
+})
+```
+
+### Holder Only
+
+```typescript
+// Holder is always available, no config needed
+const agent = new Agent({
+  config: { /* ... */ },
+  dependencies: agentDependencies,
+  modules: {
+    openId4Vc: new OpenId4VcModule(),
+  },
+})
+```
+
+## Issuer Usage
+
+### Create Credential Offer
+
+```typescript
+const credentialOffer = await agent.modules.openId4Vc.issuer.createCredentialOffer({
+  offeredCredentials: [
+    {
+      id: 'credential-id',
+      format: 'jwt_vc_json',
+      credential: {
+        '@context': ['https://www.w3.org/2018/credentials/v1'],
+        type: ['VerifiableCredential', 'UniversityDegree'],
+        issuer: issuerDid,
+        credentialSubject: {},
+      },
+    },
+  ],
+  preAuthorizedCodeFlowConfig: {
+    userPinRequired: false,
+  },
+})
+
+// Share the credential offer URI
+console.log(credentialOffer.credentialOfferUri)
+// openid-credential-offer://?credential_offer=...
+```
+
+### Issue Credential
+
+```typescript
+// The actual credential issuance happens when holder requests
+// You can customize the credential before signing:
+agent.modules.openId4Vc.issuer.onCredentialRequest(async ({ credentialRequest }) => {
+  const credential = {
+    '@context': ['https://www.w3.org/2018/credentials/v1'],
+    type: ['VerifiableCredential', 'UniversityDegree'],
+    issuer: issuerDid,
+    issuanceDate: new Date().toISOString(),
+    credentialSubject: {
+      id: holderDid,
+      degree: {
+        type: 'BachelorDegree',
+        name: 'Bachelor of Science',
+      },
+    },
+  }
+
+  return { credential }
+})
+```
+
+## Holder Usage
+
+### Receive Credential
+
+```typescript
+// Resolve and accept credential offer
+const resolvedOffer = await agent.modules.openId4Vc.holder.resolveCredentialOffer(
+  credentialOfferUri
+)
+
+// Request credential
+const credentials = await agent.modules.openId4Vc.holder.requestCredentials({
+  resolvedCredentialOffer: resolvedOffer,
+})
+
+console.log('Received credentials:', credentials)
+```
+
+### Present Credential
+
+```typescript
+// Resolve authorization request from verifier
+const resolved = await agent.modules.openId4Vc.holder.resolveAuthorizationRequest(
+  authorizationRequest
+)
+
+// Select credentials to present
+const selectedCredentials = await agent.modules.openId4Vc.holder.selectCredentialsForRequest(
+  resolved.authorizationRequest
+)
+
+// Send presentation
+const result = await agent.modules.openId4Vc.holder.sendPresentation({
+  authorizationRequest: resolved.authorizationRequest,
+  selectedCredentials,
+})
+```
+
+## Verifier Usage
+
+### Request Presentation
+
+```typescript
+// Create authorization request
+const { authorizationRequest } = await agent.modules.openId4Vc.verifier.createAuthorizationRequest({
+  requestSigner: {
+    method: 'did',
+    didUrl: verifierDid,
+  },
+  presentationDefinition: {
+    id: 'presentation-definition-1',
+    input_descriptors: [
+      {
+        id: 'degree',
+        constraints: {
+          fields: [
+            {
+              path: ['$.type'],
+              filter: {
+                type: 'string',
+                pattern: 'UniversityDegree',
+              },
+            },
+          ],
+        },
+      },
+    ],
+  },
+})
+
+// Share authorization request with holder
+console.log(authorizationRequest)
+```
+
+### Verify Presentation
+
+```typescript
+// Verification happens automatically when presentation is received
+const presentation = await agent.modules.openId4Vc.verifier.getVerifiedPresentation({
+  authorizationResponse,
+})
+
+if (presentation.verified) {
+  console.log('Presentation verified successfully!')
+  console.log('Submitted credentials:', presentation.credentials)
+}
+```
+
+## Configuration Options
+
+### Issuer Configuration
+
+```typescript
+interface OpenId4VcIssuerModuleConfigOptions {
+  baseUrl: string
+  endpoints?: {
+    credential?: {
+      credentialEndpoint?: string
+    }
+  }
+  // Additional router configuration for custom endpoints
+  router?: Router
+}
+```
+
+### Verifier Configuration
+
+```typescript
+interface OpenId4VcVerifierModuleConfigOptions {
+  baseUrl: string
+  endpoints?: {
+    authorization?: {
+      authorizationEndpoint?: string
+    }
+  }
+  router?: Router
+}
+```
+
+## Supported Credential Formats
+
+- `jwt_vc_json` - W3C Verifiable Credentials as JWT
+- `jwt_vc_json-ld` - W3C VC JSON-LD as JWT
+- `ldp_vc` - W3C VC with Linked Data Proofs
+- `sd-jwt-vc` - SD-JWT Verifiable Credentials
+
+## Platform Considerations
+
+### Node.js
+
+The module includes Express.js router support for HTTP endpoints:
+
+```typescript
+import express from 'express'
+
+const app = express()
+// OpenID4VC endpoints are automatically registered
+app.listen(3000)
+```
+
+### React Native
+
+Use custom routers for mobile platforms as Express is not available.
+
+## API Reference
+
+### Issuer API
+
+- `agent.modules.openId4Vc.issuer.createCredentialOffer()`
+- `agent.modules.openId4Vc.issuer.onCredentialRequest()`
+
+### Holder API
+
+- `agent.modules.openId4Vc.holder.resolveCredentialOffer()`
+- `agent.modules.openId4Vc.holder.requestCredentials()`
+- `agent.modules.openId4Vc.holder.resolveAuthorizationRequest()`
+- `agent.modules.openId4Vc.holder.sendPresentation()`
+
+### Verifier API
+
+- `agent.modules.openId4Vc.verifier.createAuthorizationRequest()`
+- `agent.modules.openId4Vc.verifier.getVerifiedPresentation()`
+
+## Source Code
+
+View the source code at:
+- [packages/openid4vc](https://github.com/openwallet-foundation/credo-ts/tree/main/packages/openid4vc)
+
+## Related Standards
+
+- [OpenID for Verifiable Credential Issuance](https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0.html)
+- [OpenID for Verifiable Presentations](https://openid.net/specs/openid-4-verifiable-presentations-1_0.html)
+- [OAuth 2.0](https://oauth.net/2/)

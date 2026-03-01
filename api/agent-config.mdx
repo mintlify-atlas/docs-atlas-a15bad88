@@ -1,0 +1,172 @@
+---
+title: 'AgentConfig'
+description: 'Agent configuration options'
+---
+
+## InitConfig
+
+Configuration interface for initializing an agent.
+
+```typescript
+import { InitConfig } from '@credo-ts/core'
+
+const config: InitConfig = {
+  logger: new ConsoleLogger(LogLevel.info),
+  autoUpdateStorageOnStartup: true,
+  allowInsecureHttpUrls: false,
+  validitySkewSeconds: 30,
+}
+```
+
+### Properties
+
+<ParamField path="logger" type="Logger" optional>
+  Custom logger instance. Defaults to `ConsoleLogger` with `LogLevel.off`.
+  
+  ```typescript
+  import { ConsoleLogger, LogLevel } from '@credo-ts/core'
+  
+  logger: new ConsoleLogger(LogLevel.info)
+  ```
+</ParamField>
+
+<ParamField path="autoUpdateStorageOnStartup" type="boolean" optional default="false">
+  Automatically update storage schema when starting agent if needed.
+  
+  ```typescript
+  autoUpdateStorageOnStartup: true
+  ```
+</ParamField>
+
+<ParamField path="allowInsecureHttpUrls" type="boolean" optional default="false">
+  Allow insecure HTTP URLs in places where HTTPS is usually required.
+  
+  **Use with caution** - only for local development.
+  
+  ```typescript
+  allowInsecureHttpUrls: true // Only for development!
+  ```
+</ParamField>
+
+<ParamField path="validitySkewSeconds" type="number" optional default="30">
+  Allowed time skew in seconds for validity checks of credentials and signed objects.
+  
+  Useful for mobile devices that may have slightly inaccurate clocks.
+  
+  Currently affects:
+  - Token Status List
+  - SD-JWT VC
+  - W3C VCDM 1.1 and 2.0 with JWT/SD-JWT
+  
+  Does not affect:
+  - W3C VCDM 1.1 JSON-LD
+  - mDOC
+  
+  ```typescript
+  validitySkewSeconds: 60 // Allow 60 seconds of skew
+  ```
+</ParamField>
+
+## AgentConfig
+
+The AgentConfig class wraps InitConfig and provides access to configuration values.
+
+### Properties
+
+#### logger
+
+Logger instance configured for the agent.
+
+```typescript
+agent.config.logger.info('Agent initialized')
+```
+
+**Type:** `Logger`
+
+#### allowInsecureHttpUrls
+
+Whether insecure HTTP URLs are allowed.
+
+```typescript
+if (agent.config.allowInsecureHttpUrls) {
+  // HTTP allowed
+}
+```
+
+**Type:** `boolean`
+
+#### autoUpdateStorageOnStartup
+
+Whether to automatically update storage on startup.
+
+```typescript
+const autoUpdate = agent.config.autoUpdateStorageOnStartup
+```
+
+**Type:** `boolean`
+
+#### validitySkewSeconds
+
+Allowed validity skew in seconds.
+
+```typescript
+const skew = agent.config.validitySkewSeconds
+```
+
+**Type:** `number`
+
+### Methods
+
+#### extend()
+
+Create a new AgentConfig with updated values.
+
+```typescript
+const newConfig = agent.config.extend({
+  allowInsecureHttpUrls: true,
+})
+```
+
+**Parameters:**
+- `config`: `Partial<InitConfig>` - Configuration values to update
+
+**Returns:** `AgentConfig`
+
+#### toJSON()
+
+Serialize configuration to JSON.
+
+```typescript
+const json = agent.config.toJSON()
+console.log(json)
+```
+
+**Returns:** Object with serialized configuration
+
+## Example Usage
+
+```typescript
+import { Agent, InitConfig, ConsoleLogger, LogLevel } from '@credo-ts/core'
+import { agentDependencies } from '@credo-ts/node'
+
+const config: InitConfig = {
+  logger: new ConsoleLogger(LogLevel.debug),
+  autoUpdateStorageOnStartup: true,
+  allowInsecureHttpUrls: process.env.NODE_ENV === 'development',
+  validitySkewSeconds: 60,
+}
+
+const agent = new Agent({
+  config,
+  dependencies: agentDependencies,
+  modules: {
+    // ... modules
+  },
+})
+
+await agent.initialize()
+
+// Access configuration
+console.log('Skew allowed:', agent.config.validitySkewSeconds)
+agent.config.logger.info('Agent started')
+```

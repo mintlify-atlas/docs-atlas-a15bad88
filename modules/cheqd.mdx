@@ -1,0 +1,449 @@
+---
+title: '@credo-ts/cheqd'
+description: Cheqd network integration for DIDs and AnonCreds
+---
+
+The Cheqd module provides integration with the Cheqd network, enabling DID operations, AnonCreds registry functionality, and decentralized resource management.
+
+## Overview
+
+The Cheqd module enables:
+
+- **DID operations** - Create and manage `did:cheqd` DIDs
+- **AnonCreds registry** - Register and resolve schemas and credential definitions on Cheqd
+- **Resource management** - Store and retrieve DID-linked resources
+- **Cosmos SDK integration** - Leverage Cheqd's Cosmos-based blockchain
+- **Payment integration** - Transaction fees in CHEQ tokens
+
+## Installation
+
+```bash
+npm install @credo-ts/cheqd @credo-ts/anoncreds
+```
+
+## Dependencies
+
+Cheqd module requires:
+
+- `@credo-ts/core` - Core functionality
+- `@credo-ts/anoncreds` - For AnonCreds support (optional)
+
+## Registration
+
+```typescript
+import { Agent } from '@credo-ts/core'
+import { CheqdModule, CheqdAnonCredsRegistry } from '@credo-ts/cheqd'
+import { AnonCredsModule } from '@credo-ts/anoncreds'
+import { anoncreds } from '@hyperledger/anoncreds-nodejs'
+
+const agent = new Agent({
+  config: { /* ... */ },
+  dependencies: agentDependencies,
+  modules: {
+    cheqd: new CheqdModule({
+      networks: [
+        {
+          network: 'testnet',
+          cosmosPayerSeed: 'your-cosmos-payer-seed-phrase-here...',
+        },
+      ],
+    }),
+    anoncreds: new AnonCredsModule({
+      anoncreds,
+      registries: [new CheqdAnonCredsRegistry()],
+    }),
+  },
+})
+
+await agent.initialize()
+```
+
+## Configuration Options
+
+```typescript
+interface CheqdModuleConfigOptions {
+  networks: CheqdNetwork[]
+}
+
+interface CheqdNetwork {
+  // Network to connect to
+  network: 'mainnet' | 'testnet'
+  
+  // Cosmos payer seed for transaction fees
+  cosmosPayerSeed: string
+  
+  // Optional RPC endpoint override
+  rpcUrl?: string
+}
+```
+
+## Networks
+
+### Testnet
+
+```typescript
+networks: [
+  {
+    network: 'testnet',
+    cosmosPayerSeed: process.env.CHEQD_TESTNET_PAYER_SEED,
+  },
+]
+```
+
+### Mainnet
+
+```typescript
+networks: [
+  {
+    network: 'mainnet',
+    cosmosPayerSeed: process.env.CHEQD_MAINNET_PAYER_SEED,
+  },
+]
+```
+
+## DID Operations
+
+### Create did:cheqd DID
+
+```typescript
+// Create DID on Cheqd network
+const didResult = await agent.dids.create({
+  method: 'cheqd',
+  options: {
+    network: 'testnet',
+    methodSpecificIdAlgo: 'uuid',
+  },
+})
+
+console.log('Created DID:', didResult.didState.did)
+// did:cheqd:testnet:7bf81a20-633c-4cc7-bc4a-5a45801005e0
+```
+
+### Create DID with Specific Service Endpoints
+
+```typescript
+const didResult = await agent.dids.create({
+  method: 'cheqd',
+  options: {
+    network: 'testnet',
+    methodSpecificIdAlgo: 'uuid',
+  },
+  didDocument: {
+    service: [
+      {
+        id: 'did:cheqd:testnet:...#service-1',
+        type: 'LinkedDomains',
+        serviceEndpoint: ['https://example.com'],
+      },
+    ],
+  },
+})
+```
+
+### Resolve did:cheqd DID
+
+```typescript
+const didDocument = await agent.dids.resolve(
+  'did:cheqd:testnet:7bf81a20-633c-4cc7-bc4a-5a45801005e0'
+)
+
+if (didDocument.didDocument) {
+  console.log('DID Document:', didDocument.didDocument)
+}
+```
+
+### Update DID Document
+
+```typescript
+const updateResult = await agent.dids.update({
+  did: 'did:cheqd:testnet:7bf81a20-633c-4cc7-bc4a-5a45801005e0',
+  didDocument: {
+    // Updated DID document
+    service: [
+      {
+        id: 'did:cheqd:testnet:...#new-service',
+        type: 'DIDCommMessaging',
+        serviceEndpoint: ['https://agent.example.com'],
+      },
+    ],
+  },
+})
+```
+
+### Deactivate DID
+
+```typescript
+const deactivateResult = await agent.dids.deactivate({
+  did: 'did:cheqd:testnet:7bf81a20-633c-4cc7-bc4a-5a45801005e0',
+})
+```
+
+## AnonCreds Operations
+
+### Register Schema
+
+```typescript
+const schema = await agent.modules.anoncreds.registerSchema({
+  schema: {
+    name: 'Employee Credential',
+    version: '1.0',
+    attrNames: ['name', 'employee_id', 'position'],
+    issuerId: 'did:cheqd:testnet:7bf81a20-633c-4cc7-bc4a-5a45801005e0',
+  },
+  options: {},
+})
+
+console.log('Schema ID:', schema.schemaState.schemaId)
+```
+
+### Register Credential Definition
+
+```typescript
+const credDef = await agent.modules.anoncreds.registerCredentialDefinition({
+  credentialDefinition: {
+    tag: 'employee',
+    issuerId: 'did:cheqd:testnet:7bf81a20-633c-4cc7-bc4a-5a45801005e0',
+    schemaId: schema.schemaState.schemaId,
+  },
+  options: {},
+})
+
+console.log('Credential Definition ID:', credDef.credentialDefinitionState.credentialDefinitionId)
+```
+
+### Register Revocation Registry
+
+```typescript
+const revRegDef = await agent.modules.anoncreds.registerRevocationRegistryDefinition({
+  revocationRegistryDefinition: {
+    credentialDefinitionId: credDef.credentialDefinitionState.credentialDefinitionId,
+    issuerId: 'did:cheqd:testnet:7bf81a20-633c-4cc7-bc4a-5a45801005e0',
+    tag: 'default',
+    maximumCredentialNumber: 1000,
+  },
+  options: {},
+})
+```
+
+## Resource Management
+
+Cheqd supports storing resources linked to DIDs:
+
+### Create Resource
+
+```typescript
+const resource = await agent.modules.cheqd.createResource({
+  did: 'did:cheqd:testnet:7bf81a20-633c-4cc7-bc4a-5a45801005e0',
+  resource: {
+    name: 'Company Logo',
+    resourceType: 'image/png',
+    data: logoImageBuffer,
+  },
+})
+
+console.log('Resource ID:', resource.resourceId)
+```
+
+### Resolve Resource
+
+```typescript
+const resource = await agent.modules.cheqd.resolveResource({
+  did: 'did:cheqd:testnet:7bf81a20-633c-4cc7-bc4a-5a45801005e0',
+  resourceId: 'resource-uuid',
+})
+
+console.log('Resource data:', resource.data)
+```
+
+## Transaction Fees
+
+Cheqd network operations require CHEQ tokens for transaction fees.
+
+### Getting CHEQ Tokens
+
+**Testnet:**
+- Use the [Cheqd Testnet Faucet](https://testnet-faucet.cheqd.io/)
+
+**Mainnet:**
+- Purchase CHEQ tokens from exchanges
+- Transfer to your Cosmos payer address
+
+### Checking Balance
+
+```typescript
+const balance = await agent.modules.cheqd.getBalance({
+  network: 'testnet',
+  address: cosmosPayerAddress,
+})
+
+console.log('Balance:', balance, 'ncheq')
+```
+
+## Cosmos Payer Seed
+
+The `cosmosPayerSeed` is a BIP39 mnemonic that controls the Cosmos address paying for transactions:
+
+```typescript
+// Generate new seed (keep this secure!)
+import { generateMnemonic } from 'bip39'
+
+const cosmosPayerSeed = generateMnemonic(256) // 24 words
+console.log('Store securely:', cosmosPayerSeed)
+```
+
+## Advanced Usage
+
+### Custom RPC Endpoint
+
+```typescript
+modules: {
+  cheqd: new CheqdModule({
+    networks: [
+      {
+        network: 'testnet',
+        cosmosPayerSeed: process.env.CHEQD_PAYER_SEED,
+        rpcUrl: 'https://custom-rpc.cheqd.net',
+      },
+    ],
+  }),
+}
+```
+
+### Multiple Networks
+
+```typescript
+modules: {
+  cheqd: new CheqdModule({
+    networks: [
+      {
+        network: 'testnet',
+        cosmosPayerSeed: process.env.CHEQD_TESTNET_SEED,
+      },
+      {
+        network: 'mainnet',
+        cosmosPayerSeed: process.env.CHEQD_MAINNET_SEED,
+      },
+    ],
+  }),
+}
+```
+
+## DID Method Specification
+
+Cheqd DIDs follow the format:
+
+```
+did:cheqd:{network}:{unique-id}
+```
+
+Examples:
+```
+did:cheqd:testnet:7bf81a20-633c-4cc7-bc4a-5a45801005e0
+did:cheqd:mainnet:d4e9e8f6-3a4a-4e6f-9c3a-8b7e6f5d4c3b
+```
+
+## Best Practices
+
+### 1. Secure Seed Storage
+
+```typescript
+// NEVER commit seeds to version control
+// Use environment variables or secret management
+cosmosPayerSeed: process.env.CHEQD_PAYER_SEED
+```
+
+### 2. Monitor Token Balance
+
+```typescript
+// Check balance before operations
+const balance = await agent.modules.cheqd.getBalance({ network: 'testnet', address })
+
+if (balance < minimumRequired) {
+  throw new Error('Insufficient CHEQ tokens for transaction')
+}
+```
+
+### 3. Use Testnet for Development
+
+```typescript
+const network = process.env.NODE_ENV === 'production' ? 'mainnet' : 'testnet'
+
+modules: {
+  cheqd: new CheqdModule({
+    networks: [{ network, cosmosPayerSeed: process.env.CHEQD_PAYER_SEED }],
+  }),
+}
+```
+
+### 4. Handle Transaction Errors
+
+```typescript
+try {
+  const didResult = await agent.dids.create({ method: 'cheqd', /* ... */ })
+} catch (error) {
+  if (error.message.includes('insufficient funds')) {
+    // Handle low balance
+  } else if (error.message.includes('timeout')) {
+    // Handle network timeout
+  }
+}
+```
+
+## Platform Support
+
+The Cheqd module supports:
+
+- **Node.js** - Full support
+- **React Native** - Full support
+- **Browser** - Limited (requires polyfills)
+
+## API Reference
+
+### DID Operations
+
+- `agent.dids.create({ method: 'cheqd', ... })` - Create did:cheqd DID
+- `agent.dids.resolve('did:cheqd:...')` - Resolve DID
+- `agent.dids.update({ did: 'did:cheqd:...', ... })` - Update DID document
+- `agent.dids.deactivate({ did: 'did:cheqd:...' })` - Deactivate DID
+
+### Resource Operations
+
+- `agent.modules.cheqd.createResource()` - Create DID-linked resource
+- `agent.modules.cheqd.resolveResource()` - Resolve resource
+
+### Utility
+
+- `agent.modules.cheqd.getBalance()` - Check CHEQ token balance
+
+## Troubleshooting
+
+### Transaction Failures
+
+If transactions fail:
+
+1. Check token balance
+2. Verify network connectivity
+3. Ensure payer seed is correct
+4. Check network status at [Cheqd Explorer](https://explorer.cheqd.io/)
+
+### DID Resolution Issues
+
+```typescript
+const result = await agent.dids.resolve('did:cheqd:testnet:...')
+
+if (result.didResolutionMetadata.error) {
+  console.error('Resolution error:', result.didResolutionMetadata.error)
+}
+```
+
+## Source Code
+
+View the source code at:
+- [packages/cheqd](https://github.com/openwallet-foundation/credo-ts/tree/main/packages/cheqd)
+- [Cheqd Documentation](https://docs.cheqd.io/)
+
+## Related Documentation
+
+- [AnonCreds Module](/modules/anoncreds)
+- [Cheqd Network](https://cheqd.io/)
+- [did:cheqd Method](https://docs.cheqd.io/identity/)

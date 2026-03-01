@@ -1,0 +1,105 @@
+---
+title: Introduction
+description: Build decentralized identity solutions with TypeScript
+---
+
+# What is Credo?
+
+Credo is a framework written in TypeScript for building **decentralized identity solutions** that aims to be compliant and **interoperable with identity standards across the world**. Credo is agnostic to any specific exchange protocol, credential format, signature suite or DID method, but currently mainly focuses on alignment with OpenID4VC, DIDComm, and Hyperledger Aries.
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get a basic Credo agent running in minutes
+  </Card>
+  <Card title="Installation" icon="download" href="/installation">
+    Install Credo packages for your platform
+  </Card>
+  <Card title="Core concepts" icon="book" href="/concepts/agents">
+    Learn the fundamental concepts
+  </Card>
+  <Card title="API reference" icon="code" href="/api-reference/introduction">
+    Explore the complete API documentation
+  </Card>
+</CardGroup>
+
+## Key features
+
+### Platform agnostic
+
+Credo provides out-of-the-box support for Node.js and React Native, allowing you to build identity solutions for servers, mobile apps, and more.
+
+### DIDComm and Aries Interop Profile
+
+Support for DIDComm v1 and both v1 and v2 of the Aries Interop Profile (AIP), enabling secure peer-to-peer messaging and credential exchange.
+
+### OpenID4VC support
+
+Full support for the OpenID for Verifiable Credentials family of specifications:
+
+- OpenID for Verifiable Credential Issuance
+- OpenID for Verifiable Presentations
+- Self-Issued OpenID Provider v2 (SIOPv2)
+
+### Multiple credential formats
+
+Work with various credential formats including:
+
+- W3C Verifiable Credential Data Model v1.1
+- SD-JWT VCs (Selective Disclosure JWT Verifiable Credentials)
+- AnonCreds (privacy-preserving credentials)
+
+### Extendable DID support
+
+Out-of-the-box support for multiple DID methods with extendable resolver and registrar:
+
+- `did:web`
+- `did:webvh`
+- `did:key`
+- `did:jwk`
+- `did:peer`
+- `did:sov`
+- `did:indy`
+- `did:cheqd`
+- `did:hedera`
+
+### Multi-tenant capable
+
+Optional multi-tenant module for managing multiple tenants under a single agent instance.
+
+## Platform support
+
+<CardGroup cols={2}>
+  <Card title="Node.js" icon="node-js">
+    Full-featured support for Node.js 20.19+
+  </Card>
+  <Card title="React Native" icon="mobile">
+    Build mobile identity wallets with React Native
+  </Card>
+</CardGroup>
+
+## Standards compliance
+
+Credo is built to be compliant with global identity standards:
+
+<AccordionGroup>
+  <Accordion title="OpenID4VC" icon="openid">
+    OpenID for Verifiable Credential Issuance, OpenID for Verifiable Presentations, and Self-Issued OpenID Provider v2
+  </Accordion>
+  <Accordion title="DIDComm" icon="message">
+    DIDComm Messaging v1 and support for the Aries protocols
+  </Accordion>
+  <Accordion title="W3C Standards" icon="w3c">
+    W3C Decentralized Identifiers (DIDs), Verifiable Credentials Data Model v1.1
+  </Accordion>
+  <Accordion title="AnonCreds" icon="shield">
+    Hyperledger AnonCreds specification for privacy-preserving credentials
+  </Accordion>
+</AccordionGroup>
+
+## Next steps
+
+Ready to start building? Follow the quickstart guide to create your first Credo agent:
+
+<Card title="Get started" icon="arrow-right" href="/quickstart">
+  Build your first agent in under 5 minutes
+</Card>

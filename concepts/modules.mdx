@@ -1,0 +1,430 @@
+---
+title: Modules
+description: Understanding Credo's module system and how to use modules
+---
+
+Credo's module system provides a flexible architecture for extending agent functionality. Modules are self-contained packages that register services, APIs, and configuration with the agent's dependency injection system.
+
+## What is a Module?
+
+A module in Credo is a class that implements the `Module` interface and provides:
+
+- **Services**: Business logic and functionality
+- **API**: Public interface for interacting with the module
+- **Configuration**: Module-specific settings
+- **Repositories**: Data persistence and retrieval
+
+```typescript
+export interface Module {
+  api?: Constructor<unknown>
+  register(dependencyManager: DependencyManager): void
+}
+```
+
+## Default Modules
+
+Credo includes several default modules that are automatically registered with every agent:
+
+```typescript
+function getDefaultAgentModules() {
+  return {
+    dcql: () => new DcqlModule(),
+    genericRecords: () => new GenericRecordsModule(),
+    dids: () => new DidsModule(),
+    w3cCredentials: () => new W3cCredentialsModule(),
+    cache: () => new CacheModule({ cache: new SingleContextStorageLruCache({ limit: 500 }) }),
+    pex: () => new DifPresentationExchangeModule(),
+    sdJwtVc: () => new SdJwtVcModule(),
+    x509: () => new X509Module(),
+    mdoc: () => new MdocModule(),
+    kms: () => new KeyManagementModule({}),
+  } as const
+}
+```
+
+Source: `packages/core/src/agent/AgentModules.ts:104`
+
+<Info>
+Default modules are always available on the agent without explicit registration. You can override their configuration by providing your own instance in the agent constructor.
+</Info>
+
+### Default Module APIs
+
+Default modules are accessible directly on the agent instance:
+
+```typescript
+// Access default module APIs
+await agent.dids.create({ method: 'key' })
+await agent.w3cCredentials.createCredential({ /* ... */ })
+await agent.sdJwtVc.sign({ /* ... */ })
+await agent.x509.createSelfSignedCertificate({ /* ... */ })
+await agent.mdoc.sign({ /* ... */ })
+await agent.kms.createKey({ keyType: 'ed25519' })
+```
+
+## Custom Modules
+
+Custom modules extend agent functionality beyond the defaults. Common custom modules include:
+
+### DIDComm Module
+
+```typescript
+import { DidCommModule } from '@credo-ts/didcomm'
+
+const agent = new Agent({
+  config: { /* ... */ },
+  modules: {
+    didcomm: new DidCommModule(),
+  },
+  dependencies: agentDependencies,
+})
+
+// Access DIDComm API
+await agent.didcomm.connections.createConnection({ /* ... */ })
+```
+
+<Note>
+The DIDComm module is exposed at the top level of the agent for convenience: `agent.didcomm` is equivalent to `agent.modules.didcomm`.
+</Note>
+
+### OpenID4VC Module
+
+```typescript
+import { OpenId4VcModule } from '@credo-ts/openid4vc'
+
+const agent = new Agent({
+  config: { /* ... */ },
+  modules: {
+    openid4vc: new OpenId4VcModule(),
+  },
+  dependencies: agentDependencies,
+})
+
+// Access OpenID4VC API
+await agent.openid4vc.issuer.createCredentialOffer({ /* ... */ })
+```
+
+<Note>
+The OpenID4VC module is also exposed at the top level: `agent.openid4vc` is equivalent to `agent.modules.openid4vc`.
+</Note>
+
+### AnonCreds Module
+
+```typescript
+import { AnonCredsModule } from '@credo-ts/anoncreds'
+import { anoncreds } from '@hyperledger/anoncreds-nodejs'
+
+const agent = new Agent({
+  config: { /* ... */ },
+  modules: {
+    anoncreds: new AnonCredsModule({ anoncreds }),
+  },
+  dependencies: agentDependencies,
+})
+
+// Access via modules namespace
+await agent.modules.anoncreds.createSchema({ /* ... */ })
+```
+
+### Storage Modules
+
+Storage modules provide the persistence layer:
+
+```typescript
+import { AskarModule } from '@credo-ts/askar'
+import { ariesAskar } from '@hyperledger/aries-askar-nodejs'
+
+const agent = new Agent({
+  config: { /* ... */ },
+  modules: {
+    askar: new AskarModule({
+      ariesAskar,
+      multiWalletDatabasePath: './wallet-db',
+    }),
+  },
+  dependencies: agentDependencies,
+})
+```
+
+<Warning>
+A storage module (AskarModule or DrizzleStorageModule) is **required** for the agent to function. The agent will throw an error during initialization if no storage service is registered.
+</Warning>
+
+## Module Structure
+
+Here's how to create a custom module:
+
+### 1. Define the Module Class
+
+```typescript
+import type { DependencyManager, Module } from '@credo-ts/core'
+
+export class MyCustomModule implements Module {
+  public readonly config: MyCustomModuleConfig
+  public readonly api = MyCustomApi
+
+  public constructor(config?: MyCustomModuleConfigOptions) {
+    this.config = new MyCustomModuleConfig(config)
+  }
+
+  public register(dependencyManager: DependencyManager) {
+    // Register config
+    dependencyManager.registerInstance(MyCustomModuleConfig, this.config)
+
+    // Register services
+    dependencyManager.registerSingleton(MyCustomService)
+
+    // Register repositories
+    dependencyManager.registerSingleton(MyCustomRepository)
+  }
+}
+```
+
+### 2. Create the API Class
+
+The API class provides the public interface for your module:
+
+```typescript
+import { injectable, AgentContext } from '@credo-ts/core'
+
+@injectable()
+export class MyCustomApi {
+  private agentContext: AgentContext
+  private myCustomService: MyCustomService
+
+  public constructor(agentContext: AgentContext, myCustomService: MyCustomService) {
+    this.agentContext = agentContext
+    this.myCustomService = myCustomService
+  }
+
+  public async doSomething(options: DoSomethingOptions) {
+    return await this.myCustomService.doSomething(this.agentContext, options)
+  }
+}
+```
+
+### 3. Implement Services
+
+Services contain the business logic:
+
+```typescript
+import { injectable, AgentContext } from '@credo-ts/core'
+
+@injectable()
+export class MyCustomService {
+  public async doSomething(agentContext: AgentContext, options: DoSomethingOptions) {
+    // Business logic here
+    const repository = agentContext.dependencyManager.resolve(MyCustomRepository)
+    // ...
+  }
+}
+```
+
+### 4. Create Repositories
+
+Repositories handle data persistence:
+
+```typescript
+import { Repository, StorageService, EventEmitter, injectable } from '@credo-ts/core'
+
+@injectable()
+export class MyCustomRepository extends Repository<MyCustomRecord> {
+  public constructor(storageService: StorageService<MyCustomRecord>, eventEmitter: EventEmitter) {
+    super(MyCustomRecord, storageService, eventEmitter)
+  }
+}
+```
+
+## Module Configuration
+
+### Basic Configuration
+
+```typescript
+export interface MyCustomModuleConfigOptions {
+  // Configuration options
+  option1?: string
+  option2?: number
+}
+
+export class MyCustomModuleConfig {
+  private options: MyCustomModuleConfigOptions
+
+  public constructor(options?: MyCustomModuleConfigOptions) {
+    this.options = options ?? {}
+  }
+
+  public get option1() {
+    return this.options.option1 ?? 'default-value'
+  }
+}
+```
+
+### Module Lifecycle
+
+Modules can implement lifecycle hooks:
+
+```typescript
+export class MyCustomModule implements Module {
+  // ... other methods ...
+
+  // Called during agent initialization
+  public async initialize?(agentContext: AgentContext): Promise<void> {
+    // Initialization logic
+  }
+
+  // Called during agent shutdown
+  public async shutdown?(agentContext: AgentContext): Promise<void> {
+    // Cleanup logic
+  }
+}
+```
+
+## Module Examples
+
+### DidsModule
+
+The DidsModule manages DID creation, resolution, and registration:
+
+```typescript
+export class DidsModule implements Module {
+  public readonly config: DidsModuleConfig
+  public readonly api = DidsApi
+
+  public constructor(config?: DidsModuleConfigOptions) {
+    this.config = new DidsModuleConfig(config)
+  }
+
+  public register(dependencyManager: DependencyManager) {
+    dependencyManager.registerInstance(DidsModuleConfig, this.config)
+    dependencyManager.registerSingleton(DidResolverService)
+    dependencyManager.registerSingleton(DidRegistrarService)
+    dependencyManager.registerSingleton(DidRepository)
+  }
+}
+```
+
+Source: `packages/core/src/modules/dids/DidsModule.ts:8`
+
+### W3cCredentialsModule
+
+The W3cCredentialsModule handles W3C Verifiable Credentials:
+
+```typescript
+export class W3cCredentialsModule implements Module {
+  public readonly config: W3cCredentialsModuleConfig
+  public readonly api = W3cCredentialsApi
+
+  public constructor(config?: W3cCredentialsModuleConfigOptions) {
+    this.config = new W3cCredentialsModuleConfig(config)
+  }
+
+  public register(dependencyManager: DependencyManager) {
+    dependencyManager.registerSingleton(W3cCredentialService)
+    dependencyManager.registerSingleton(W3cJwtCredentialService)
+    dependencyManager.registerSingleton(W3cJsonLdCredentialService)
+    dependencyManager.registerSingleton(W3cCredentialRepository)
+    dependencyManager.registerSingleton(SignatureSuiteRegistry)
+    dependencyManager.registerInstance(W3cCredentialsModuleConfig, this.config)
+  }
+}
+```
+
+Source: `packages/core/src/modules/vc/W3cCredentialsModule.ts:20`
+
+### SdJwtVcModule
+
+The SdJwtVcModule implements SD-JWT VC support:
+
+```typescript
+export class SdJwtVcModule implements Module {
+  public readonly config: SdJwtVcModuleConfig
+  public readonly api = SdJwtVcApi
+
+  public constructor(options?: SdJwtVcModuleConfigOptions) {
+    this.config = new SdJwtVcModuleConfig(options)
+  }
+
+  public register(dependencyManager: DependencyManager) {
+    dependencyManager.registerInstance(SdJwtVcModuleConfig, this.config)
+    dependencyManager.registerSingleton(SdJwtVcService)
+    dependencyManager.registerSingleton(SdJwtVcRepository)
+  }
+}
+```
+
+Source: `packages/core/src/modules/sd-jwt-vc/SdJwtVcModule.ts:10`
+
+## Dependency Injection
+
+Modules leverage Credo's dependency injection system:
+
+### Registering Dependencies
+
+```typescript
+// Singleton: One instance shared across the application
+dependencyManager.registerSingleton(MyService)
+
+// Instance: Specific instance to use
+dependencyManager.registerInstance(MyConfig, configInstance)
+
+// Transient: New instance created each time
+dependencyManager.register(MyClass, { useClass: MyClass })
+```
+
+### Resolving Dependencies
+
+```typescript
+// In a service or API class
+const service = agentContext.dependencyManager.resolve(MyService)
+
+// Using the @injectable decorator
+@injectable()
+export class MyApi {
+  public constructor(
+    private agentContext: AgentContext,
+    private myService: MyService
+  ) {}
+}
+```
+
+## Best Practices
+
+<Info>
+**Module Design:**
+- Keep modules focused on a single domain or feature
+- Use clear naming conventions (MyFeatureModule, MyFeatureApi, MyFeatureService)
+- Document configuration options and their defaults
+- Implement lifecycle hooks for proper initialization and cleanup
+
+**API Design:**
+- APIs should be the only public interface to module functionality
+- Services should remain internal implementation details
+- Use TypeScript for strong typing and better developer experience
+- Provide clear error messages
+
+**Configuration:**
+- Provide sensible defaults for all configuration options
+- Document required vs. optional configuration
+- Validate configuration during module construction
+</Info>
+
+## Module Registry
+
+The `DependencyManager` maintains a registry of all registered modules:
+
+```typescript
+// Access registered modules
+const registeredModules = agent.dependencyManager.registeredModules
+
+// Check if a module is registered
+if (agent.dependencyManager.isRegistered(MyModuleApi)) {
+  const api = agent.dependencyManager.resolve(MyModuleApi)
+}
+```
+
+## Related Topics
+
+- [Agent](/concepts/agent) - Learn about agent architecture
+- [Storage](/concepts/storage) - Understand storage modules
+- [DID Methods](/concepts/did-methods) - DID method modules
+- [Verifiable Credentials](/concepts/verifiable-credentials) - Credential format modules

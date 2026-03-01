@@ -1,0 +1,401 @@
+---
+title: 'CacheModule'
+description: 'Caching layer for improved performance'
+---
+
+## Overview
+
+The CacheModule provides a caching layer that can improve agent performance by reducing storage queries and enabling faster record lookups.
+
+```typescript
+import { CacheModule } from '@credo-ts/core'
+import { Agent } from '@credo-ts/core'
+
+const agent = new Agent({
+  // ...
+  modules: {
+    cache: new CacheModule({
+      cache: new SingleContextStorageLruCache({ limit: 500 }),
+      useCachedStorageService: true,
+    }),
+  },
+})
+```
+
+## Configuration
+
+### CacheModuleOptions
+
+```typescript
+import { CacheModule, SingleContextStorageLruCache } from '@credo-ts/core'
+
+const cacheModule = new CacheModule({
+  cache: new SingleContextStorageLruCache({
+    limit: 500, // Maximum number of cached items
+  }),
+  useCachedStorageService: true,
+})
+```
+
+<ParamField path="cache" type="Cache" required>
+  Cache implementation to use. Options:
+  
+  - `SingleContextStorageLruCache`: LRU cache for single agent context
+  - Custom cache implementation
+</ParamField>
+
+<ParamField path="useCachedStorageService" type="boolean" optional default="false">
+  Whether to use the cached storage service.
+  
+  When enabled, the `CachedStorageService` wraps the regular storage service and checks the cache before querying storage.
+</ParamField>
+
+## Cache Interface
+
+Custom cache implementations should implement the Cache interface:
+
+```typescript
+interface Cache {
+  get<T>(agentContext: AgentContext, key: string): Promise<T | null>
+  set<T>(agentContext: AgentContext, key: string, value: T): Promise<void>
+  remove(agentContext: AgentContext, key: string): Promise<void>
+}
+```
+
+## Built-in Cache: SingleContextStorageLruCache
+
+LRU (Least Recently Used) cache implementation for single agent contexts.
+
+### Configuration
+
+```typescript
+import { SingleContextStorageLruCache } from '@credo-ts/core'
+
+const cache = new SingleContextStorageLruCache({
+  limit: 500, // Maximum number of items in cache
+})
+```
+
+### Features
+
+- **LRU Eviction**: Automatically removes least recently used items when limit is reached
+- **Persistent Storage**: Cache is backed by storage for durability
+- **Single Context**: Designed for agents with a single context
+
+## CachedStorageService
+
+When `useCachedStorageService` is enabled, the `CachedStorageService` wraps the storage service and provides caching.
+
+### How It Works
+
+1. **Cache Check**: On `getById`, checks cache first
+2. **Storage Fallback**: If not in cache, queries storage
+3. **Cache Population**: Stores result in cache for future requests
+4. **Cache Invalidation**: Updates and deletes invalidate cache
+
+### Usage
+
+```typescript
+// CachedStorageService is automatically used when configured
+const record = await repository.getById(agentContext, recordId)
+// First call: queries storage
+// Second call: returns from cache
+```
+
+## Usage Examples
+
+### Basic Setup
+
+```typescript
+import { Agent, CacheModule, SingleContextStorageLruCache } from '@credo-ts/core'
+import { agentDependencies } from '@credo-ts/node'
+
+const agent = new Agent({
+  config: {
+    // ...
+  },
+  dependencies: agentDependencies,
+  modules: {
+    cache: new CacheModule({
+      cache: new SingleContextStorageLruCache({ limit: 500 }),
+      useCachedStorageService: true,
+    }),
+  },
+})
+
+await agent.initialize()
+```
+
+### Manual Cache Access
+
+You can access the cache directly:
+
+```typescript
+import { CacheModuleConfig } from '@credo-ts/core'
+
+const cacheConfig = agent.context.resolve(CacheModuleConfig)
+const cache = cacheConfig.cache
+
+// Store value
+await cache.set(agent.context, 'my-key', { data: 'value' })
+
+// Retrieve value
+const value = await cache.get<{ data: string }>(agent.context, 'my-key')
+
+if (value) {
+  console.log('Cached value:', value.data)
+}
+
+// Remove value
+await cache.remove(agent.context, 'my-key')
+```
+
+### Custom Cache Implementation
+
+```typescript
+import { Cache, AgentContext } from '@credo-ts/core'
+
+class RedisCache implements Cache {
+  private client: RedisClient
+  
+  constructor(client: RedisClient) {
+    this.client = client
+  }
+  
+  async get<T>(agentContext: AgentContext, key: string): Promise<T | null> {
+    const value = await this.client.get(key)
+    return value ? JSON.parse(value) : null
+  }
+  
+  async set<T>(agentContext: AgentContext, key: string, value: T): Promise<void> {
+    await this.client.set(key, JSON.stringify(value))
+  }
+  
+  async remove(agentContext: AgentContext, key: string): Promise<void> {
+    await this.client.del(key)
+  }
+}
+
+// Use custom cache
+const agent = new Agent({
+  // ...
+  modules: {
+    cache: new CacheModule({
+      cache: new RedisCache(redisClient),
+      useCachedStorageService: true,
+    }),
+  },
+})
+```
+
+### Repository Caching
+
+Repositories can use cache keys for single record queries:
+
+```typescript
+// Internal implementation in Repository
+const record = await repository.findSingleByQuery(
+  agentContext,
+  { did: 'did:key:...' },
+  { cacheKey: 'did:did:key:...' } // Cache by DID
+)
+
+// First query: checks cache with key 'did:did:key:...'
+// Cache miss: queries storage, stores in cache
+// Second query: returns from cache
+```
+
+## Performance Considerations
+
+### When to Use Caching
+
+**Good use cases:**
+- Frequently accessed records (e.g., DIDs, connections)
+- Read-heavy workloads
+- Records that don't change frequently
+
+**Not recommended:**
+- Write-heavy workloads
+- Large records (use smaller cache limit)
+- Records that change frequently
+
+### Cache Size
+
+Choose cache size based on:
+- Available memory
+- Number of records
+- Average record size
+
+```typescript
+// Small agent (mobile)
+new SingleContextStorageLruCache({ limit: 100 })
+
+// Medium agent (desktop)
+new SingleContextStorageLruCache({ limit: 500 })
+
+// Large agent (server)
+new SingleContextStorageLruCache({ limit: 2000 })
+```
+
+## Configuration Properties
+
+### CacheModuleConfig
+
+Access cache configuration:
+
+```typescript
+import { CacheModuleConfig } from '@credo-ts/core'
+
+const config = agent.context.resolve(CacheModuleConfig)
+
+// Check if cached storage is enabled
+if (config.useCachedStorageService) {
+  console.log('Using cached storage service')
+}
+
+// Access cache directly
+const cache = config.cache
+await cache.set(agent.context, 'key', 'value')
+```
+
+#### cache
+
+The configured cache instance.
+
+```typescript
+const cache = config.cache
+```
+
+**Type:** `Cache`
+
+#### useCachedStorageService
+
+Whether cached storage service is enabled.
+
+```typescript
+const enabled = config.useCachedStorageService
+```
+
+**Type:** `boolean`
+
+## Cache Strategies
+
+### Read-Through Caching
+
+The `CachedStorageService` implements read-through caching:
+
+```typescript
+// Read-through pattern
+const record = await repository.getById(agentContext, id)
+// 1. Check cache
+// 2. If miss, query storage
+// 3. Store in cache
+// 4. Return record
+```
+
+### Write-Through Caching
+
+Cache is invalidated on writes:
+
+```typescript
+// Update invalidates cache
+await repository.update(agentContext, record)
+// Cache entry is removed
+
+// Next read will fetch from storage
+const updated = await repository.getById(agentContext, id)
+// Cache is repopulated
+```
+
+## Monitoring and Debugging
+
+### Cache Hits vs Misses
+
+To monitor cache performance, you can wrap the cache:
+
+```typescript
+class MonitoredCache implements Cache {
+  private cache: Cache
+  private hits = 0
+  private misses = 0
+  
+  constructor(cache: Cache) {
+    this.cache = cache
+  }
+  
+  async get<T>(agentContext: AgentContext, key: string): Promise<T | null> {
+    const value = await this.cache.get<T>(agentContext, key)
+    if (value) {
+      this.hits++
+      console.log(`Cache hit: ${key} (${this.hits} hits, ${this.misses} misses)`)
+    } else {
+      this.misses++
+      console.log(`Cache miss: ${key} (${this.hits} hits, ${this.misses} misses)`)
+    }
+    return value
+  }
+  
+  async set<T>(agentContext: AgentContext, key: string, value: T): Promise<void> {
+    return this.cache.set(agentContext, key, value)
+  }
+  
+  async remove(agentContext: AgentContext, key: string): Promise<void> {
+    return this.cache.remove(agentContext, key)
+  }
+  
+  getStats() {
+    return {
+      hits: this.hits,
+      misses: this.misses,
+      hitRate: this.hits / (this.hits + this.misses),
+    }
+  }
+}
+
+// Use monitored cache
+const monitoredCache = new MonitoredCache(
+  new SingleContextStorageLruCache({ limit: 500 })
+)
+
+const agent = new Agent({
+  // ...
+  modules: {
+    cache: new CacheModule({
+      cache: monitoredCache,
+      useCachedStorageService: true,
+    }),
+  },
+})
+
+// Later, check stats
+console.log('Cache stats:', monitoredCache.getStats())
+```
+
+## Best Practices
+
+1. **Enable for Read-Heavy Workloads**: Use caching when you frequently read the same records
+
+2. **Choose Appropriate Size**: Balance memory usage with cache effectiveness
+
+3. **Monitor Performance**: Track cache hit rates to ensure effectiveness
+
+4. **Consider Record Lifetime**: Cache works best for relatively stable data
+
+5. **Use Cache Keys**: Leverage cache keys in repository queries for better performance
+
+```typescript
+// Good: Uses cache key for frequently accessed DID
+const didRecord = await didRepository.findSingleByQuery(
+  agentContext,
+  { did },
+  { cacheKey: `did:${did}` }
+)
+
+// Not as effective: No cache key, won't benefit from caching
+const allDids = await didRepository.getAll(agentContext)
+```
+
+## See Also
+
+- [StorageService](/api/storage) - Underlying storage layer
+- [Repository](/api/storage#repository) - Data access layer with caching support

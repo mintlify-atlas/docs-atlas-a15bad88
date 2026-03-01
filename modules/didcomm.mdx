@@ -1,0 +1,425 @@
+---
+title: '@credo-ts/didcomm'
+description: DIDComm v1 protocols for secure peer-to-peer messaging and credential exchange
+---
+
+The DIDComm module provides implementation of DIDComm v1 protocols from the Aries RFCs, enabling secure, privacy-preserving communication between agents.
+
+## Overview
+
+DIDComm (Decentralized Identifier Communication) is a secure messaging protocol that enables:
+
+- **Peer-to-peer connections** - Direct encrypted communication between agents
+- **Credential exchange** - Issue and verify credentials via secure channels
+- **Proof exchange** - Request and present verifiable proofs
+- **Mediation** - Route messages through mediators for mobile/edge devices
+- **Message pickup** - Retrieve messages from mediators asynchronously
+
+## Installation
+
+```bash
+npm install @credo-ts/didcomm @credo-ts/core
+```
+
+## Registration
+
+```typescript
+import { Agent } from '@credo-ts/core'
+import { DidCommModule, DidCommHttpOutboundTransport } from '@credo-ts/didcomm'
+import { agentDependencies, DidCommHttpInboundTransport } from '@credo-ts/node'
+
+const agent = new Agent({
+  config: {
+    label: 'My Agent',
+    walletConfig: {
+      id: 'wallet-id',
+      key: 'wallet-key',
+    },
+    endpoints: ['https://example.com:3000'],
+  },
+  dependencies: agentDependencies,
+  modules: {
+    didcomm: new DidCommModule({
+      // Configure individual protocol modules
+      connections: {
+        autoAcceptConnections: true,
+      },
+      credentials: {
+        autoAcceptCredentials: 'contentApproved',
+      },
+      proofs: {
+        autoAcceptProofs: 'contentApproved',
+      },
+      mediator: {
+        // Mediator configuration
+      },
+      mediationRecipient: {
+        // Mediation recipient configuration
+      },
+    }),
+  },
+})
+
+// Register transports
+agent.didcomm.registerInboundTransport(
+  new DidCommHttpInboundTransport({ port: 3000 })
+)
+agent.didcomm.registerOutboundTransport(
+  new DidCommHttpOutboundTransport()
+)
+
+await agent.initialize()
+```
+
+## Configuration Options
+
+```typescript
+interface DidCommModuleConfigOptions {
+  // Connection protocol settings
+  connections?: {
+    autoAcceptConnections?: boolean
+    alias?: string
+    imageUrl?: string
+  }
+
+  // Credential protocol settings  
+  credentials?: {
+    autoAcceptCredentials?: AutoAcceptCredential
+  }
+
+  // Proof protocol settings
+  proofs?: {
+    autoAcceptProofs?: AutoAcceptProof
+  }
+
+  // Mediator settings (if acting as mediator)
+  mediator?: MediatorModuleConfig
+
+  // Mediation recipient settings (if using mediator)
+  mediationRecipient?: MediationRecipientModuleConfig
+  
+  // Message pickup settings
+  messagePickup?: MessagePickupModuleConfig
+  
+  // Discovery features settings
+  discovery?: DiscoverFeaturesModuleConfig
+  
+  // Basic messages settings
+  basicMessages?: BasicMessagesModuleConfig
+}
+```
+
+## Core Protocols
+
+### Connections
+
+Establish secure connections between agents.
+
+#### Out-of-Band Invitations
+
+```typescript
+// Create invitation
+const outOfBandRecord = await agent.didcomm.oob.createInvitation({
+  label: 'Alice Agent',
+  handshakeProtocols: ['https://didcomm.org/connections/1.0'],
+})
+
+const invitationUrl = outOfBandRecord.outOfBandInvitation.toUrl({
+  domain: 'https://example.com',
+})
+
+console.log('Share this invitation:', invitationUrl)
+// https://example.com?oob=eyJ...
+```
+
+#### Receive Invitation
+
+```typescript
+const { outOfBandRecord, connectionRecord } = await agent.didcomm.oob.receiveInvitationFromUrl(
+  invitationUrl
+)
+
+if (connectionRecord) {
+  console.log('Connection ID:', connectionRecord.id)
+}
+```
+
+#### Connection Events
+
+```typescript
+import { ConnectionEventTypes } from '@credo-ts/didcomm'
+
+agent.events.on(ConnectionEventTypes.ConnectionStateChanged, ({ payload }) => {
+  if (payload.connectionRecord.state === 'completed') {
+    console.log('Connection established:', payload.connectionRecord.id)
+  }
+})
+```
+
+### Credentials
+
+Issue and receive credentials over DIDComm.
+
+#### Offer Credential (Issuer)
+
+```typescript
+import { AnonCredsCredentialFormatService } from '@credo-ts/anoncreds'
+
+const credentialExchangeRecord = await agent.credentials.offerCredential({
+  connectionId: connection.id,
+  protocolVersion: 'v2',
+  credentialFormats: {
+    anoncreds: {
+      credentialDefinitionId,
+      attributes: [
+        { name: 'name', value: 'Alice' },
+        { name: 'age', value: '25' },
+      ],
+    },
+  },
+})
+```
+
+#### Accept Credential (Holder)
+
+```typescript
+import { CredentialEventTypes, CredentialState } from '@credo-ts/didcomm'
+
+agent.events.on(CredentialEventTypes.CredentialStateChanged, async ({ payload }) => {
+  const record = payload.credentialRecord
+  
+  if (record.state === CredentialState.OfferReceived) {
+    await agent.credentials.acceptOffer({
+      credentialRecordId: record.id,
+    })
+  }
+  
+  if (record.state === CredentialState.Done) {
+    console.log('Credential received and stored!')
+  }
+})
+```
+
+### Proofs
+
+Request and present verifiable proofs.
+
+#### Request Proof (Verifier)
+
+```typescript
+const proofRequest = await agent.proofs.requestProof({
+  connectionId: connection.id,
+  protocolVersion: 'v2',
+  proofFormats: {
+    anoncreds: {
+      name: 'proof-request',
+      version: '1.0',
+      requested_attributes: {
+        name: {
+          name: 'name',
+          restrictions: [
+            {
+              cred_def_id: credentialDefinitionId,
+            },
+          ],
+        },
+      },
+      requested_predicates: {},
+    },
+  },
+})
+```
+
+#### Present Proof (Holder)
+
+```typescript
+import { ProofEventTypes, ProofState } from '@credo-ts/didcomm'
+
+agent.events.on(ProofEventTypes.ProofStateChanged, async ({ payload }) => {
+  const record = payload.proofRecord
+  
+  if (record.state === ProofState.RequestReceived) {
+    // Retrieve credentials for proof request
+    const retrievedCredentials = await agent.proofs.selectCredentialsForRequest({
+      proofRecordId: record.id,
+    })
+    
+    // Create proof  
+    await agent.proofs.acceptRequest({
+      proofRecordId: record.id,
+      proofFormats: {
+        anoncreds: {
+          // Specify which credentials to use
+        },
+      },
+    })
+  }
+})
+```
+
+### Basic Messages
+
+Send simple text messages between connections.
+
+```typescript
+// Send message
+await agent.basicMessages.sendMessage({
+  connectionId: connection.id,
+  content: 'Hello from Alice!',
+})
+
+// Receive messages
+import { BasicMessageEventTypes } from '@credo-ts/didcomm'
+
+agent.events.on(BasicMessageEventTypes.BasicMessageReceived, ({ payload }) => {
+  console.log('Received:', payload.message.content)
+})
+```
+
+## Mediation
+
+Mediation enables agents (especially mobile) to receive messages indirectly.
+
+### Using a Mediator
+
+```typescript
+// Connect to mediator
+const mediatorInvitation = await agent.didcomm.oob.receiveInvitationFromUrl(
+  mediatorInvitationUrl
+)
+
+// Request mediation
+const mediationRecord = await agent.mediationRecipient.requestMediation({
+  connectionId: mediatorInvitation.connectionRecord!.id,
+})
+
+// Set as default mediator
+await agent.mediationRecipient.setDefaultMediator(mediationRecord)
+```
+
+### Acting as Mediator
+
+```typescript
+const agent = new Agent({
+  config: { /* ... */ },
+  modules: {
+    didcomm: new DidCommModule({
+      mediator: {
+        autoAcceptMediationRequests: true,
+      },
+    }),
+  },
+})
+```
+
+## Message Pickup
+
+Retrieve messages from mediator when not always online.
+
+```typescript
+// Pickup messages from mediator
+await agent.messagePickup.pickupMessages({
+  connectionId: mediatorConnectionId,
+})
+
+// Or use live delivery mode (WebSocket)
+await agent.messagePickup.setLiveDeliveryMode({
+  connectionId: mediatorConnectionId,
+})
+```
+
+## Transports
+
+DIDComm supports multiple transport protocols:
+
+### HTTP Transport
+
+```typescript
+import { DidCommHttpInboundTransport, DidCommHttpOutboundTransport } from '@credo-ts/didcomm'
+import { agentDependencies } from '@credo-ts/node'
+
+// Inbound (server)
+agent.didcomm.registerInboundTransport(
+  new DidCommHttpInboundTransport({ port: 3000 })
+)
+
+// Outbound (client)
+agent.didcomm.registerOutboundTransport(
+  new DidCommHttpOutboundTransport()
+)
+```
+
+### WebSocket Transport
+
+```typescript
+import { DidCommWsInboundTransport, DidCommWsOutboundTransport } from '@credo-ts/didcomm'
+
+agent.didcomm.registerInboundTransport(
+  new DidCommWsInboundTransport({ port: 3001 })
+)
+
+agent.didcomm.registerOutboundTransport(
+  new DidCommWsOutboundTransport()
+)
+```
+
+## Discovery Features
+
+Query what protocols and features another agent supports.
+
+```typescript
+// Query features
+const features = await agent.discovery.queryFeatures({
+  connectionId: connection.id,
+  query: '*',
+})
+
+console.log('Supported protocols:', features)
+```
+
+## API Reference
+
+### Out-of-Band
+
+- `agent.didcomm.oob.createInvitation()` - Create OOB invitation
+- `agent.didcomm.oob.receiveInvitation()` - Receive invitation
+- `agent.didcomm.oob.receiveInvitationFromUrl()` - Receive from URL
+
+### Connections
+
+- `agent.connections.getAll()` - Get all connections
+- `agent.connections.findById()` - Find connection by ID
+- `agent.connections.deleteById()` - Delete connection
+
+### Credentials
+
+- `agent.credentials.offerCredential()` - Offer credential
+- `agent.credentials.acceptOffer()` - Accept credential offer
+- `agent.credentials.getAll()` - Get all credential records
+
+### Proofs
+
+- `agent.proofs.requestProof()` - Request proof
+- `agent.proofs.acceptRequest()` - Accept proof request
+- `agent.proofs.getAll()` - Get all proof records
+
+### Basic Messages
+
+- `agent.basicMessages.sendMessage()` - Send basic message
+
+### Mediation
+
+- `agent.mediationRecipient.requestMediation()` - Request mediation
+- `agent.mediationRecipient.setDefaultMediator()` - Set default mediator
+- `agent.messagePickup.pickupMessages()` - Pickup messages
+
+## Source Code
+
+View the source code at:
+- [packages/didcomm](https://github.com/openwallet-foundation/credo-ts/tree/main/packages/didcomm)
+
+## Related Standards
+
+- [DIDComm v1](https://hyperledger.github.io/aries-rfcs/latest/concepts/0005-didcomm/)
+- [Aries RFCs](https://github.com/hyperledger/aries-rfcs)
+- [Out-of-Band RFC](https://github.com/hyperledger/aries-rfcs/tree/main/features/0434-outofband)

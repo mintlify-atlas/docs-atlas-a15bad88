@@ -1,0 +1,397 @@
+---
+title: 'MdocApi'
+description: 'Mobile document (mdoc) API for ISO 18013-5 compliance'
+---
+
+## Overview
+
+The MdocApi provides methods for working with mobile documents (mdoc) following the ISO 18013-5 standard, commonly used for mobile driver's licenses (mDL) and other identity documents.
+
+```typescript
+const mdoc = await agent.mdoc.sign({
+  docType: 'org.iso.18013.5.1.mDL',
+  issuerCertificate: certificate,
+  validityInfo: {
+    validFrom: new Date(),
+    validUntil: new Date('2025-12-31'),
+  },
+  namespaces: {
+    'org.iso.18013.5.1': {
+      family_name: 'Smith',
+      given_name: 'Alice',
+      birth_date: '1990-01-01',
+    },
+  },
+})
+```
+
+## Methods
+
+### sign()
+
+Create and sign a new mdoc with specific doctype, namespaces, and validity info.
+
+```typescript
+const mdoc = await agent.mdoc.sign({
+  docType: 'org.iso.18013.5.1.mDL',
+  issuerCertificate: x5c,
+  holderKey: holderPublicKey,
+  namespaces: {
+    'org.iso.18013.5.1': {
+      family_name: 'Doe',
+      given_name: 'John',
+      birth_date: '1985-03-15',
+      issue_date: '2024-01-15',
+      expiry_date: '2029-01-15',
+      document_number: 'DL123456789',
+      portrait: portraitBytes,
+      driving_privileges: [
+        {
+          vehicle_category_code: 'A',
+          issue_date: '2024-01-15',
+          expiry_date: '2029-01-15',
+        },
+      ],
+    },
+  },
+  validityInfo: {
+    signed: new Date('2024-01-15'),
+    validFrom: new Date('2024-01-15'),
+    validUntil: new Date('2029-01-15'),
+    expectedUpdate: new Date('2025-01-15'),
+  },
+})
+
+const base64 = mdoc.base64Url
+```
+
+<ParamField path="options.docType" type="string" required>
+  Document type identifier (e.g., 'org.iso.18013.5.1.mDL' for mobile driver's license)
+</ParamField>
+
+<ParamField path="options.issuerCertificate" type="string | X509Certificate" required>
+  X.509 certificate for the issuer
+</ParamField>
+
+<ParamField path="options.holderKey" type="PublicKey" optional>
+  Holder's public key for device authentication
+</ParamField>
+
+<ParamField path="options.namespaces" type="Record<string, Record<string, unknown>>" required>
+  Data elements organized by namespace
+</ParamField>
+
+<ParamField path="options.validityInfo" type="MdocValidityInfo" required>
+  Validity information:
+  
+  - `signed`: Date when mdoc was signed
+  - `validFrom`: Date from which mdoc is valid
+  - `validUntil`: Date until which mdoc is valid
+  - `expectedUpdate`: Expected next update date (optional)
+</ParamField>
+
+**Returns:** `Promise<Mdoc>`
+
+### verify()
+
+Verify an mdoc's signature and validity.
+
+```typescript
+const result = await agent.mdoc.verify(mdoc, {
+  trustedCertificates: [issuerRootCert],
+})
+
+if (result.verified) {
+  console.log('Mdoc verified successfully')
+  console.log('Issuer:', result.issuer)
+  console.log('Valid until:', result.validityInfo.validUntil)
+} else {
+  console.log('Verification failed:', result.error)
+}
+```
+
+<ParamField path="mdoc" type="Mdoc" required>
+  The mdoc to verify
+</ParamField>
+
+<ParamField path="options.trustedCertificates" type="Array<string | X509Certificate>" optional>
+  Array of trusted root/intermediate certificates
+</ParamField>
+
+<ParamField path="options.now" type="Date" optional>
+  Date to check validity against (defaults to current time)
+</ParamField>
+
+**Returns:** `Promise<MdocVerificationResult>`
+
+Result includes:
+- `verified`: boolean
+- `issuer`: Issuer information
+- `validityInfo`: Validity information
+- `error`: Error message if verification failed
+
+### fromBase64Url()
+
+Create an Mdoc instance from a base64url encoded string.
+
+```typescript
+const mdoc = agent.mdoc.fromBase64Url(
+  'omppc3N1ZXJBdXRohEOhASajGCGCWQLBMIICvTCCAaSgAwIBAgIB...'
+)
+
+console.log('DocType:', mdoc.docType)
+console.log('Namespaces:', mdoc.namespaces)
+```
+
+<ParamField path="base64Url" type="string" required>
+  Base64url encoded mdoc issuer-signed structure
+</ParamField>
+
+**Returns:** `Mdoc`
+
+### store()
+
+Store an mdoc in the wallet.
+
+```typescript
+const record = await agent.mdoc.store({
+  mdoc: mdoc.base64Url,
+  docType: 'org.iso.18013.5.1.mDL',
+})
+
+console.log('Stored mdoc:', record.id)
+```
+
+<ParamField path="options.mdoc" type="string" required>
+  Mdoc in base64url format
+</ParamField>
+
+<ParamField path="options.docType" type="string" optional>
+  Document type for indexing
+</ParamField>
+
+**Returns:** `Promise<MdocRecord>`
+
+### getById()
+
+Retrieve a stored mdoc by ID.
+
+```typescript
+const record = await agent.mdoc.getById(recordId)
+const mdoc = agent.mdoc.fromBase64Url(record.base64Url)
+```
+
+<ParamField path="id" type="string" required>
+  Record ID
+</ParamField>
+
+**Returns:** `Promise<MdocRecord>`
+
+**Throws:** `RecordNotFoundError` if not found
+
+### getAll()
+
+Retrieve all stored mdocs.
+
+```typescript
+const records = await agent.mdoc.getAll()
+console.log(`Found ${records.length} mdocs`)
+```
+
+**Returns:** `Promise<MdocRecord[]>`
+
+### findAllByQuery()
+
+Find mdocs by query.
+
+```typescript
+const driverLicenses = await agent.mdoc.findAllByQuery(
+  { docType: 'org.iso.18013.5.1.mDL' },
+  { limit: 10 }
+)
+```
+
+<ParamField path="query" type="Query<MdocRecord>" required>
+  Query object
+</ParamField>
+
+<ParamField path="queryOptions" type="QueryOptions" optional>
+  Query options (limit, offset)
+</ParamField>
+
+**Returns:** `Promise<MdocRecord[]>`
+
+### deleteById()
+
+Delete a stored mdoc by ID.
+
+```typescript
+await agent.mdoc.deleteById(recordId)
+```
+
+<ParamField path="id" type="string" required>
+  Record ID
+</ParamField>
+
+**Returns:** `Promise<void>`
+
+### update()
+
+Update a stored mdoc record.
+
+```typescript
+const record = await agent.mdoc.getById(recordId)
+record.metadata.set('lastUsed', new Date())
+
+await agent.mdoc.update(record)
+```
+
+<ParamField path="mdocRecord" type="MdocRecord" required>
+  Updated record
+</ParamField>
+
+**Returns:** `Promise<void>`
+
+## Example Usage
+
+### Issuing an mDL
+
+```typescript
+import { Agent } from '@credo-ts/core'
+
+// Create issuer certificate (simplified)
+const issuerCert = await agent.x509.createSelfSigned({
+  key: issuerKey,
+  extensions: [/* ... */],
+})
+
+// Issue mobile driver's license
+const mdl = await agent.mdoc.sign({
+  docType: 'org.iso.18013.5.1.mDL',
+  issuerCertificate: issuerCert,
+  holderKey: holderPublicKey,
+  namespaces: {
+    'org.iso.18013.5.1': {
+      // Mandatory elements
+      family_name: 'Smith',
+      given_name: 'Alice',
+      birth_date: '1990-05-15',
+      issue_date: '2024-01-01',
+      expiry_date: '2029-01-01',
+      issuing_country: 'US',
+      issuing_authority: 'CA DMV',
+      document_number: 'D1234567',
+      portrait: portraitImageBytes,
+      
+      // Driving privileges
+      driving_privileges: [
+        {
+          vehicle_category_code: 'C',
+          issue_date: '2024-01-01',
+          expiry_date: '2029-01-01',
+        },
+      ],
+      
+      // Optional elements
+      age_over_18: true,
+      age_over_21: true,
+      issuing_jurisdiction: 'California',
+    },
+  },
+  validityInfo: {
+    signed: new Date(),
+    validFrom: new Date(),
+    validUntil: new Date('2029-01-01'),
+  },
+})
+
+// Store mdoc
+const record = await agent.mdoc.store({
+  mdoc: mdl.base64Url,
+  docType: 'org.iso.18013.5.1.mDL',
+})
+
+// Transfer to holder
+const qrCode = generateQRCode(mdl.base64Url)
+```
+
+### Verifying an mDL
+
+```typescript
+import { Agent } from '@credo-ts/core'
+
+// Parse received mdoc
+const mdoc = agent.mdoc.fromBase64Url(receivedBase64)
+
+// Verify
+const result = await agent.mdoc.verify(mdoc, {
+  trustedCertificates: [dmvRootCert],
+})
+
+if (result.verified) {
+  console.log('Valid mDL')
+  
+  // Access data elements
+  const data = mdoc.namespaces['org.iso.18013.5.1']
+  console.log('Name:', data.given_name, data.family_name)
+  console.log('Birth date:', data.birth_date)
+  console.log('Age over 21:', data.age_over_21)
+  
+  // Check validity period
+  const validUntil = result.validityInfo.validUntil
+  console.log('Valid until:', validUntil)
+} else {
+  console.error('Invalid mDL:', result.error)
+}
+```
+
+## Common Document Types
+
+### Mobile Driver's License (mDL)
+
+```typescript
+docType: 'org.iso.18013.5.1.mDL'
+```
+
+### Mobile ID Card
+
+```typescript
+docType: 'org.iso.18013.5.1.mID'
+```
+
+### Vaccination Certificate
+
+```typescript
+docType: 'org.iso.18013.5.1.vaccination'
+```
+
+## Selective Disclosure
+
+Mdocs support selective disclosure of data elements:
+
+```typescript
+// Issuer issues mdoc with all elements
+const mdoc = await agent.mdoc.sign({
+  docType: 'org.iso.18013.5.1.mDL',
+  namespaces: {
+    'org.iso.18013.5.1': {
+      family_name: 'Smith',
+      given_name: 'Alice',
+      birth_date: '1990-05-15',
+      age_over_18: true,
+      age_over_21: true,
+      // ... other elements
+    },
+  },
+  // ...
+})
+
+// Holder can present only selected elements
+// This is typically done through device engagement
+// and presentation protocols (e.g., ISO 18013-5 device retrieval)
+```
+
+## See Also
+
+- [SdJwtVcApi](/api/sd-jwt-vc) - Alternative selective disclosure format
+- [Verifiable Credentials](/concepts/verifiable-credentials) - Credential formats overview

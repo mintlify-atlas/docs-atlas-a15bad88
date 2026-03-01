@@ -1,0 +1,165 @@
+---
+title: Modules Overview
+description: Understanding the Credo modular architecture and available modules
+---
+
+Credo is built with a modular architecture that allows you to include only the functionality you need. Modules extend the core agent with additional capabilities like credential formats, storage backends, and ledger integrations.
+
+## Core Architecture
+
+The Credo agent is composed of:
+
+- **@credo-ts/core** - The required foundation providing essential functionality
+- **Extension modules** - Optional modules that add specific capabilities
+- **Platform modules** - Platform-specific implementations (Node.js, React Native)
+
+## Module Registration
+
+Modules are registered when creating an agent:
+
+```typescript
+import { Agent } from '@credo-ts/core'
+import { AskarModule } from '@credo-ts/askar'
+import { AnonCredsModule } from '@credo-ts/anoncreds'
+
+const agent = new Agent({
+  config: {
+    label: 'My Agent',
+    walletConfig: {
+      id: 'my-wallet',
+      key: 'my-secret-key',
+    },
+  },
+  dependencies: agentDependencies,
+  modules: {
+    askar: new AskarModule({
+      ariesAskar,
+    }),
+    anoncreds: new AnonCredsModule({
+      registries: [indyVdrAnonCredsRegistry],
+      anoncreds,
+    }),
+  },
+})
+
+await agent.initialize()
+```
+
+## Available Modules
+
+<CardGroup cols={2}>
+  <Card title="Core" icon="cube" href="/modules/core">
+    Essential framework functionality - required for all agents
+  </Card>
+  
+  <Card title="OpenID4VC" icon="id-card" href="/modules/openid4vc">
+    OpenID for Verifiable Credentials support (issuer, holder, verifier)
+  </Card>
+  
+  <Card title="AnonCreds" icon="mask" href="/modules/anoncreds">
+    Privacy-preserving AnonCreds credential format
+  </Card>
+  
+  <Card title="DIDComm" icon="comments" href="/modules/didcomm">
+    DIDComm v1 protocols for connections, credentials, and proofs
+  </Card>
+  
+  <Card title="Tenants" icon="users" href="/modules/tenants">
+    Multi-tenancy support for hosting multiple agent instances
+  </Card>
+  
+  <Card title="Askar" icon="database" href="/modules/askar">
+    Secure storage and cryptographic operations using Aries Askar
+  </Card>
+  
+  <Card title="Indy VDR" icon="network-wired" href="/modules/indy-vdr">
+    Hyperledger Indy ledger integration for AnonCreds
+  </Card>
+  
+  <Card title="Cheqd" icon="link" href="/modules/cheqd">
+    Cheqd network integration for DIDs and resources
+  </Card>
+  
+  <Card title="Hedera" icon="h" href="/modules/hedera">
+    Hedera network integration (experimental)
+  </Card>
+</CardGroup>
+
+## Module Categories
+
+### Credential Formats
+
+- **AnonCreds** - Privacy-preserving credentials with selective disclosure
+- **OpenID4VC** - OpenID for Verifiable Credentials (OID4VCI, OID4VP)
+
+### Communication Protocols
+
+- **DIDComm** - Secure, privacy-preserving messaging based on DIDs
+
+### Storage & Cryptography
+
+- **Askar** - Secure storage and key management (recommended)
+
+### Ledger Integration
+
+- **Indy VDR** - Hyperledger Indy networks
+- **Cheqd** - Cheqd network
+- **Hedera** - Hedera network (experimental)
+
+### Infrastructure
+
+- **Tenants** - Multi-tenancy for SaaS applications
+
+## Choosing Modules
+
+### For AnonCreds Credentials
+
+If you're working with AnonCreds (Hyperledger Indy style credentials):
+
+```typescript
+modules: {
+  askar: new AskarModule({ ariesAskar }),
+  anoncreds: new AnonCredsModule({ registries, anoncreds }),
+  indyVdr: new IndyVdrModule({ indyVdr, networks }),
+}
+```
+
+### For OpenID4VC Credentials
+
+If you're working with W3C Verifiable Credentials via OpenID4VC:
+
+```typescript
+modules: {
+  askar: new AskarModule({ ariesAskar }),
+  openId4VcIssuer: new OpenId4VcModule({
+    issuer: { baseUrl: 'https://issuer.example.com' },
+    verifier: { baseUrl: 'https://verifier.example.com' },
+  }),
+}
+```
+
+### For DIDComm Messaging
+
+If you need peer-to-peer credential exchange:
+
+```typescript
+modules: {
+  askar: new AskarModule({ ariesAskar }),
+  didcomm: new DidCommModule({
+    connections: { autoAcceptConnections: true },
+  }),
+}
+```
+
+## Module Lifecycle
+
+Modules participate in the agent lifecycle:
+
+1. **Registration** - `register()` called to register dependencies
+2. **Initialization** - `initialize()` called when agent starts
+3. **Runtime** - Module APIs available via `agent.modules.moduleName`
+4. **Shutdown** - `shutdown()` called when agent stops
+
+## Next Steps
+
+Explore individual module documentation to learn about specific capabilities and configuration options.

@@ -1,0 +1,238 @@
+---
+title: Agent Configuration
+description: Learn how to configure your Credo agent with custom settings, logging, and initialization options
+---
+
+The `Agent` class is the main entry point for Credo. This guide covers how to configure your agent with various options and settings.
+
+## Basic Configuration
+
+Every Credo agent requires two main things:
+
+1. **Configuration** - Settings for the agent behavior
+2. **Dependencies** - Platform-specific implementations
+3. **Modules** - Feature modules to enable functionality
+
+```typescript
+import { Agent } from '@credo-ts/core'
+import { agentDependencies } from '@credo-ts/node'
+
+const agent = new Agent({
+  config: {
+    // Agent configuration options
+  },
+  dependencies: agentDependencies,
+  modules: {
+    // Feature modules
+  }
+})
+
+await agent.initialize()
+```
+
+## Configuration Options
+
+The `InitConfig` interface defines all available configuration options:
+
+### Logger
+
+Control logging output and verbosity:
+
+```typescript
+import { ConsoleLogger, LogLevel } from '@credo-ts/core'
+
+const agent = new Agent({
+  config: {
+    logger: new ConsoleLogger(LogLevel.info),
+  },
+  dependencies: agentDependencies,
+  modules: {},
+})
+```
+
+**Available log levels:**
+- `LogLevel.test` - Most verbose
+- `LogLevel.trace`
+- `LogLevel.debug`
+- `LogLevel.info`
+- `LogLevel.warn`
+- `LogLevel.error`
+- `LogLevel.fatal`
+- `LogLevel.off` - No logging
+
+### Auto-Update Storage
+
+Automatically update storage schema on startup:
+
+```typescript
+const agent = new Agent({
+  config: {
+    autoUpdateStorageOnStartup: true,
+  },
+  dependencies: agentDependencies,
+  modules: {},
+})
+```
+
+<Warning>
+Enabling `autoUpdateStorageOnStartup` will automatically migrate your storage when Credo versions change. Only use this in development or if you have proper backups.
+</Warning>
+
+### Allow Insecure HTTP URLs
+
+Permit HTTP URLs in contexts that normally require HTTPS:
+
+```typescript
+const agent = new Agent({
+  config: {
+    allowInsecureHttpUrls: true, // Only for development!
+  },
+  dependencies: agentDependencies,
+  modules: {},
+})
+```
+
+<Warning>
+Only use `allowInsecureHttpUrls: true` in development environments. Production agents should always use HTTPS.
+</Warning>
+
+### Validity Skew Seconds
+
+Allow clock skew tolerance for JWT and credential validation:
+
+```typescript
+const agent = new Agent({
+  config: {
+    validitySkewSeconds: 60, // Allow 60 seconds of clock skew
+  },
+  dependencies: agentDependencies,
+  modules: {},
+})
+```
+
+This is useful for:
+- Mobile devices with inaccurate clocks
+- Distributed systems with slight time differences
+- SD-JWT VC validation
+- Token Status List validation
+
+**Default:** 30 seconds
+
+## Complete Example
+
+Here's a complete configuration example from the Credo demo:
+
+```typescript
+import { Agent, ConsoleLogger, LogLevel } from '@credo-ts/core'
+import { agentDependencies } from '@credo-ts/node'
+import { AskarModule } from '@credo-ts/askar'
+import { DidCommModule } from '@credo-ts/didcomm'
+import { askar } from '@openwallet-foundation/askar-nodejs'
+
+const agent = new Agent({
+  config: {
+    logger: new ConsoleLogger(LogLevel.info),
+    autoUpdateStorageOnStartup: false,
+    allowInsecureHttpUrls: false,
+    validitySkewSeconds: 30,
+  },
+  dependencies: agentDependencies,
+  modules: {
+    askar: new AskarModule({
+      askar,
+      store: {
+        id: 'my-agent',
+        key: 'my-secret-key',
+      },
+    }),
+    didcomm: new DidCommModule({
+      endpoints: ['http://localhost:3000'],
+      connections: {
+        autoAcceptConnections: true,
+      },
+    }),
+  },
+})
+
+await agent.initialize()
+console.log('Agent initialized successfully!')
+```
+
+## Accessing Configuration
+
+Once the agent is initialized, you can access its configuration:
+
+```typescript
+// Access the logger
+agent.config.logger.info('Hello from agent')
+
+// Check configuration values
+const allowsInsecure = agent.config.allowInsecureHttpUrls
+const autoUpdate = agent.config.autoUpdateStorageOnStartup
+const skewSeconds = agent.config.validitySkewSeconds
+```
+
+## Extending Configuration
+
+You can extend the agent configuration after creation:
+
+```typescript
+const extendedConfig = agent.config.extend({
+  allowInsecureHttpUrls: true,
+})
+```
+
+## Agent Lifecycle
+
+<Steps>
+
+### Create the Agent
+
+Instantiate the agent with configuration:
+
+```typescript
+const agent = new Agent({ config, dependencies, modules })
+```
+
+### Initialize
+
+Initialize the agent to start all modules and transports:
+
+```typescript
+await agent.initialize()
+```
+
+### Use the Agent
+
+Interact with the agent through its API:
+
+```typescript
+const connection = await agent.didcomm.connections.createConnection(...)
+```
+
+### Shutdown
+
+Gracefully shutdown when done:
+
+```typescript
+await agent.shutdown()
+```
+
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="DIDComm Setup" icon="comments" href="./didcomm">
+    Configure DIDComm messaging and connections
+  </Card>
+  <Card title="Platform Setup" icon="mobile" href="./platform-setup">
+    Set up for Node.js or React Native
+  </Card>
+  <Card title="Multi-Tenancy" icon="users" href="./multi-tenancy">
+    Configure multi-tenant agents
+  </Card>
+  <Card title="AnonCreds" icon="shield" href="./anoncreds">
+    Enable privacy-preserving credentials
+  </Card>
+</CardGroup>

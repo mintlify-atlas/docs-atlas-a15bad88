@@ -1,122 +1,135 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "Credo",
+  "theme": "aspen",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#5B68F0",
+    "light": "#8B94FF",
+    "dark": "#3D47B8"
   },
-  "favicon": "/favicon.svg",
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/openwallet-foundation/credo-ts"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/openwallet-foundation/credo-ts"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Getting Started",
             "pages": [
-              "index",
+              "introduction",
               "quickstart",
-              "development"
+              "installation"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Core Concepts",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "concepts/agent",
+              "concepts/modules",
+              "concepts/did-methods",
+              "concepts/verifiable-credentials",
+              "concepts/storage"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "Guides",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
+              "guides/agent-config",
+              "guides/didcomm",
+              "guides/openid4vc",
+              "guides/anoncreds",
+              "guides/multi-tenancy",
+              "guides/platform-setup"
             ]
           },
           {
-            "group": "AI tools",
+            "group": "Modules",
             "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "modules/overview",
+              "modules/core",
+              "modules/openid4vc",
+              "modules/anoncreds",
+              "modules/didcomm",
+              "modules/tenants",
+              "modules/askar",
+              "modules/indy-vdr",
+              "modules/cheqd",
+              "modules/hedera"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "advanced/custom-modules",
+              "advanced/storage-migration",
+              "advanced/events",
+              "advanced/dependency-injection"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "API Reference",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Core API",
             "pages": [
-              "api-reference/introduction"
+              "api/agent",
+              "api/agent-config",
+              "api/modules-api"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "DID & Credentials",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "api/dids",
+              "api/credentials",
+              "api/presentations",
+              "api/sd-jwt-vc",
+              "api/mdoc"
+            ]
+          },
+          {
+            "group": "Protocols",
+            "pages": [
+              "api/openid4vc",
+              "api/anoncreds",
+              "api/didcomm"
+            ]
+          },
+          {
+            "group": "Storage & Cache",
+            "pages": [
+              "api/storage",
+              "api/cache"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Examples",
+        "groups": [
+          {
+            "group": "Examples",
+            "pages": [
+              "examples/issuing-credentials",
+              "examples/verifying-presentations",
+              "examples/establishing-connections",
+              "examples/multi-tenant-setup"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

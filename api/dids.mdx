@@ -1,0 +1,281 @@
+---
+title: 'DidsApi'
+description: 'DID resolution, creation, and management'
+---
+
+## Overview
+
+The DidsApi provides methods for DID operations including resolution, creation, updates, and management.
+
+```typescript
+import { agent } from './agent'
+
+const { didDocument } = await agent.dids.resolve('did:key:...')
+```
+
+## Methods
+
+### resolve()
+
+Resolve a DID to a DID document following the [W3C DID Resolution](https://w3c-ccg.github.io/did-resolution/) specification.
+
+```typescript
+const result = await agent.dids.resolve('did:key:z6MkpTHR8VNsBxYAAWHut2Geadd9jSwuBV8xRoAnwWsdvktH')
+
+console.log(result.didDocument)
+console.log(result.didResolutionMetadata)
+console.log(result.didDocumentMetadata)
+```
+
+<ParamField path="didUrl" type="string" required>
+  The DID or DID URL to resolve
+</ParamField>
+
+<ParamField path="options" type="DidResolutionOptions" optional>
+  Resolution options
+</ParamField>
+
+**Returns:** `Promise<DidResolutionResult>`
+
+### resolveDidDocument()
+
+Resolve a DID to a DID document. Throws an error if resolution fails. Simpler alternative to `resolve()`.
+
+```typescript
+const didDocument = await agent.dids.resolveDidDocument('did:key:...')
+```
+
+<ParamField path="didUrl" type="string" required>
+  The DID or DID URL to resolve
+</ParamField>
+
+**Returns:** `Promise<DidDocument>`
+
+**Throws:** `CredoError` if resolution fails
+
+### create()
+
+Create, register, and store a new DID following the [DID Registration](https://identity.foundation/did-registration) specification.
+
+```typescript
+const result = await agent.dids.create({
+  method: 'key',
+  options: {
+    keyType: KeyType.Ed25519,
+  },
+})
+
+const did = result.didState.did
+const didDocument = result.didState.didDocument
+```
+
+<ParamField path="options" type="DidCreateOptions" required>
+  DID creation options
+  
+  - `method`: DID method (e.g., 'key', 'peer', 'web')
+  - `options`: Method-specific options
+  - `secret`: Method-specific secrets
+  - `didDocument`: Optional pre-defined DID document
+</ParamField>
+
+**Returns:** `Promise<DidCreateResult>`
+
+### update()
+
+Update an existing DID document following the [DID Registration](https://identity.foundation/did-registration) specification.
+
+```typescript
+const result = await agent.dids.update({
+  did: 'did:web:example.com',
+  didDocument: updatedDocument,
+})
+```
+
+<ParamField path="options" type="DidUpdateOptions" required>
+  DID update options
+  
+  - `did`: DID to update
+  - `didDocument`: Updated DID document
+  - `options`: Method-specific options
+</ParamField>
+
+**Returns:** `Promise<DidUpdateResult>`
+
+### deactivate()
+
+Deactivate an existing DID following the [DID Registration](https://identity.foundation/did-registration) specification.
+
+```typescript
+const result = await agent.dids.deactivate({
+  did: 'did:web:example.com',
+})
+```
+
+<ParamField path="options" type="DidDeactivateOptions" required>
+  DID deactivation options
+  
+  - `did`: DID to deactivate
+  - `options`: Method-specific options
+</ParamField>
+
+**Returns:** `Promise<DidDeactivateResult>`
+
+### import()
+
+Import an existing DID that was created outside of the agent. Creates a DidRecord and optionally stores keys.
+
+```typescript
+await agent.dids.import({
+  did: 'did:key:z6MkpTHR8VNsBxYAAWHut2Geadd9jSwuBV8xRoAnwWsdvktH',
+  didDocument, // optional
+  keys: [
+    {
+      didDocumentRelativeKeyId: '#z6MkpTHR8VNsBxYAAWHut2Geadd9jSwuBV8xRoAnwWsdvktH',
+      kmsKeyId: 'key-id-in-kms',
+    },
+  ],
+  overwrite: false,
+})
+```
+
+<ParamField path="options.did" type="string" required>
+  The DID to import
+</ParamField>
+
+<ParamField path="options.didDocument" type="DidDocument" optional>
+  DID document. If not provided, will be resolved.
+</ParamField>
+
+<ParamField path="options.keys" type="Array<{ didDocumentRelativeKeyId: string, kmsKeyId: string }>" optional default="[]">
+  Keys associated with the DID to store in the wallet
+</ParamField>
+
+<ParamField path="options.overwrite" type="boolean" optional default="false">
+  Whether to overwrite existing DID record
+</ParamField>
+
+**Returns:** `Promise<void>`
+
+**Throws:** `CredoError` if DID already exists and overwrite is false
+
+### getCreatedDids()
+
+Get a list of all DIDs created by the agent.
+
+```typescript
+const dids = await agent.dids.getCreatedDids()
+const keyDids = await agent.dids.getCreatedDids({ method: 'key' })
+const specificDid = await agent.dids.getCreatedDids({ did: 'did:key:...' })
+```
+
+<ParamField path="options.method" type="string" optional>
+  Filter by DID method
+</ParamField>
+
+<ParamField path="options.did" type="string" optional>
+  Filter by specific DID
+</ParamField>
+
+**Returns:** `Promise<DidRecord[]>`
+
+### resolveCreatedDidDocumentWithKeys()
+
+Resolve a created DID document along with its associated keys.
+
+```typescript
+const { didDocument, keys } = await agent.dids.resolveCreatedDidDocumentWithKeys(
+  'did:key:z6MkpTHR8VNsBxYAAWHut2Geadd9jSwuBV8xRoAnwWsdvktH'
+)
+
+console.log('DID Document:', didDocument)
+console.log('Associated keys:', keys)
+```
+
+<ParamField path="did" type="string" required>
+  The DID to resolve
+</ParamField>
+
+**Returns:** `Promise<{ didDocument: DidDocument, keys: Array<{ didDocumentRelativeKeyId: string, kmsKeyId: string }> }>`
+
+**Throws:** `RecordNotFoundError` if DID was not created by this agent
+
+### resolveVerificationMethodFromCreatedDidRecord()
+
+Resolve a verification method from a created DID record.
+
+```typescript
+const { verificationMethod, publicJwk } = 
+  await agent.dids.resolveVerificationMethodFromCreatedDidRecord(
+    'did:key:z6MkpTHR8VNsBxYAAWHut2Geadd9jSwuBV8xRoAnwWsdvktH#z6MkpTHR8VNsBxYAAWHut2Geadd9jSwuBV8xRoAnwWsdvktH',
+    ['authentication', 'assertionMethod']
+  )
+```
+
+<ParamField path="didUrl" type="string" required>
+  DID URL referencing the verification method
+</ParamField>
+
+<ParamField path="allowedPurposes" type="Array<DidPurpose | 'verificationMethod'>" optional>
+  Filter verification methods by purpose
+</ParamField>
+
+**Returns:** `Promise<{ verificationMethod: VerificationMethod, publicJwk: PublicJwk }>`
+
+## Properties
+
+### supportedResolverMethods
+
+List of DID methods supported for resolution.
+
+```typescript
+const methods = agent.dids.supportedResolverMethods
+console.log(methods) // ['key', 'peer', 'web', ...]
+```
+
+**Type:** `string[]`
+
+### supportedRegistrarMethods
+
+List of DID methods supported for registration (creation).
+
+```typescript
+const methods = agent.dids.supportedRegistrarMethods
+console.log(methods) // ['key', 'peer', ...]
+```
+
+**Type:** `string[]`
+
+## Example Usage
+
+```typescript
+import { Agent, KeyType } from '@credo-ts/core'
+
+// Create a new DID
+const createResult = await agent.dids.create({
+  method: 'key',
+  options: {
+    keyType: KeyType.Ed25519,
+  },
+})
+
+const did = createResult.didState.did
+console.log('Created DID:', did)
+
+// Resolve the DID
+const { didDocument } = await agent.dids.resolve(did)
+console.log('DID Document:', didDocument)
+
+// Get all created DIDs
+const allDids = await agent.dids.getCreatedDids()
+console.log('Created DIDs:', allDids.map(d => d.did))
+
+// Import an external DID
+await agent.dids.import({
+  did: 'did:web:example.com',
+})
+
+// Resolve with keys
+const { didDocument: doc, keys } = 
+  await agent.dids.resolveCreatedDidDocumentWithKeys(did)
+console.log('Keys:', keys)
+```

@@ -1,0 +1,518 @@
+---
+title: '@credo-ts/hedera'
+description: Hedera network integration for DIDs and AnonCreds (experimental)
+---
+
+<Warning>
+The Hedera module is experimental and may have unexpected breaking changes. When using this module, make sure to use strict versions for all @credo-ts packages.
+</Warning>
+
+The Hedera module provides integration with the Hedera network, enabling DID operations and AnonCreds registry functionality using the Hedera Consensus Service (HCS).
+
+## Overview
+
+The Hedera module enables:
+
+- **DID operations** - Create and manage `did:hedera` DIDs
+- **AnonCreds registry** - Register and resolve schemas and credential definitions on Hedera
+- **HCS integration** - Leverage Hedera Consensus Service for immutable records
+- **Fast finality** - ~3-5 second transaction finality
+- **Low cost** - Predictable and low transaction fees
+
+## Installation
+
+```bash
+npm install @credo-ts/hedera @credo-ts/anoncreds
+```
+
+## Dependencies
+
+Hedera module requires:
+
+- `@credo-ts/core` - Core functionality
+- `@credo-ts/anoncreds` - For AnonCreds support (optional)
+
+## Registration
+
+```typescript
+import { Agent } from '@credo-ts/core'
+import { HederaModule, HederaAnonCredsRegistry } from '@credo-ts/hedera'
+import { AnonCredsModule } from '@credo-ts/anoncreds'
+import { anoncreds } from '@hyperledger/anoncreds-nodejs'
+
+const agent = new Agent({
+  config: { /* ... */ },
+  dependencies: agentDependencies,
+  modules: {
+    hedera: new HederaModule({
+      networks: [
+        {
+          network: 'testnet',
+          operatorId: '0.0.xxxxx',
+          operatorKey: 'your-hedera-operator-private-key',
+        },
+      ],
+    }),
+    anoncreds: new AnonCredsModule({
+      anoncreds,
+      registries: [new HederaAnonCredsRegistry()],
+    }),
+  },
+})
+
+await agent.initialize()
+```
+
+## Configuration Options
+
+```typescript
+interface HederaModuleConfigOptions {
+  networks: HederaNetwork[]
+}
+
+interface HederaNetwork {
+  // Network to connect to
+  network: 'mainnet' | 'testnet' | 'previewnet'
+  
+  // Hedera operator account ID
+  operatorId: string
+  
+  // Hedera operator private key
+  operatorKey: string
+  
+  // Optional custom mirror node URL
+  mirrorNodeUrl?: string
+}
+```
+
+## Networks
+
+### Testnet
+
+```typescript
+networks: [
+  {
+    network: 'testnet',
+    operatorId: process.env.HEDERA_TESTNET_OPERATOR_ID,
+    operatorKey: process.env.HEDERA_TESTNET_OPERATOR_KEY,
+  },
+]
+```
+
+### Mainnet
+
+```typescript
+networks: [
+  {
+    network: 'mainnet',
+    operatorId: process.env.HEDERA_MAINNET_OPERATOR_ID,
+    operatorKey: process.env.HEDERA_MAINNET_OPERATOR_KEY,
+  },
+]
+```
+
+### Previewnet
+
+```typescript
+networks: [
+  {
+    network: 'previewnet',
+    operatorId: process.env.HEDERA_PREVIEWNET_OPERATOR_ID,
+    operatorKey: process.env.HEDERA_PREVIEWNET_OPERATOR_KEY,
+  },
+]
+```
+
+## Getting Started with Hedera
+
+### Create Hedera Account
+
+1. **Testnet**: Create account at [Hedera Portal](https://portal.hedera.com/)
+2. **Mainnet**: Create account and fund with HBAR
+
+You'll receive:
+- Account ID (e.g., `0.0.12345`)
+- Private key (ECDSA or Ed25519)
+
+### Fund Your Account
+
+**Testnet**: Free HBAR from portal  
+**Mainnet**: Purchase HBAR from exchanges
+
+## DID Operations
+
+### Create did:hedera DID
+
+```typescript
+// Create DID on Hedera network
+const didResult = await agent.dids.create({
+  method: 'hedera',
+  options: {
+    network: 'testnet',
+  },
+})
+
+console.log('Created DID:', didResult.didState.did)
+// did:hedera:testnet:z6MkpTHR8VNsBxYAAWHut2Geadd9jSwuBV8xRoAnwWsdvktH_0.0.12345
+```
+
+### Create DID with Service Endpoints
+
+```typescript
+const didResult = await agent.dids.create({
+  method: 'hedera',
+  options: {
+    network: 'testnet',
+  },
+  didDocument: {
+    service: [
+      {
+        id: 'did:hedera:testnet:...#service-1',
+        type: 'DIDCommMessaging',
+        serviceEndpoint: ['https://agent.example.com'],
+      },
+    ],
+  },
+})
+```
+
+### Resolve did:hedera DID
+
+```typescript
+const didDocument = await agent.dids.resolve(
+  'did:hedera:testnet:z6MkpTHR8VNsBxYAAWHut2Geadd9jSwuBV8xRoAnwWsdvktH_0.0.12345'
+)
+
+if (didDocument.didDocument) {
+  console.log('DID Document:', didDocument.didDocument)
+}
+```
+
+### Update DID Document
+
+```typescript
+const updateResult = await agent.dids.update({
+  did: 'did:hedera:testnet:z6MkpTHR8VNsBxYAAWHut2Geadd9jSwuBV8xRoAnwWsdvktH_0.0.12345',
+  didDocument: {
+    // Updated DID document
+    service: [
+      {
+        id: 'did:hedera:testnet:...#new-service',
+        type: 'LinkedDomains',
+        serviceEndpoint: ['https://example.com'],
+      },
+    ],
+  },
+})
+```
+
+### Deactivate DID
+
+```typescript
+const deactivateResult = await agent.dids.deactivate({
+  did: 'did:hedera:testnet:z6MkpTHR8VNsBxYAAWHut2Geadd9jSwuBV8xRoAnwWsdvktH_0.0.12345',
+})
+```
+
+## AnonCreds Operations
+
+### Register Schema
+
+```typescript
+const schema = await agent.modules.anoncreds.registerSchema({
+  schema: {
+    name: 'DriverLicense',
+    version: '1.0',
+    attrNames: ['name', 'license_number', 'expiry_date'],
+    issuerId: 'did:hedera:testnet:z6MkpTHR8VNsBxYAAWHut2Geadd9jSwuBV8xRoAnwWsdvktH_0.0.12345',
+  },
+  options: {},
+})
+
+console.log('Schema ID:', schema.schemaState.schemaId)
+```
+
+### Register Credential Definition
+
+```typescript
+const credDef = await agent.modules.anoncreds.registerCredentialDefinition({
+  credentialDefinition: {
+    tag: 'driver-license',
+    issuerId: 'did:hedera:testnet:z6MkpTHR8VNsBxYAAWHut2Geadd9jSwuBV8xRoAnwWsdvktH_0.0.12345',
+    schemaId: schema.schemaState.schemaId,
+  },
+  options: {},
+})
+
+console.log('Credential Definition ID:', credDef.credentialDefinitionState.credentialDefinitionId)
+```
+
+### Register Revocation Registry
+
+```typescript
+const revRegDef = await agent.modules.anoncreds.registerRevocationRegistryDefinition({
+  revocationRegistryDefinition: {
+    credentialDefinitionId: credDef.credentialDefinitionState.credentialDefinitionId,
+    issuerId: 'did:hedera:testnet:z6MkpTHR8VNsBxYAAWHut2Geadd9jSwuBV8xRoAnwWsdvktH_0.0.12345',
+    tag: 'default',
+    maximumCredentialNumber: 1000,
+  },
+  options: {},
+})
+```
+
+## Hedera Consensus Service (HCS)
+
+Hedera uses HCS topics for storing DID documents and AnonCreds objects:
+
+- Each DID has an associated HCS topic
+- Updates are appended as topic messages
+- Immutable audit trail of all changes
+- Mirror nodes provide query access
+
+## Transaction Fees
+
+Hedera operations require HBAR for fees:
+
+- **Create DID**: ~$0.01 USD
+- **Update DID**: ~$0.0001 USD per message
+- **Register Schema**: ~$0.01 USD
+- **Register Cred Def**: ~$0.01 USD
+
+### Checking Balance
+
+```typescript
+const balance = await agent.modules.hedera.getAccountBalance({
+  network: 'testnet',
+  accountId: operatorId,
+})
+
+console.log('Balance:', balance.hbars.toString())
+```
+
+## Advanced Usage
+
+### Custom Mirror Node
+
+```typescript
+modules: {
+  hedera: new HederaModule({
+    networks: [
+      {
+        network: 'testnet',
+        operatorId: process.env.HEDERA_OPERATOR_ID,
+        operatorKey: process.env.HEDERA_OPERATOR_KEY,
+        mirrorNodeUrl: 'https://custom-mirror.hedera.com',
+      },
+    ],
+  }),
+}
+```
+
+### Multiple Networks
+
+```typescript
+modules: {
+  hedera: new HederaModule({
+    networks: [
+      {
+        network: 'testnet',
+        operatorId: process.env.HEDERA_TESTNET_OPERATOR_ID,
+        operatorKey: process.env.HEDERA_TESTNET_OPERATOR_KEY,
+      },
+      {
+        network: 'mainnet',
+        operatorId: process.env.HEDERA_MAINNET_OPERATOR_ID,
+        operatorKey: process.env.HEDERA_MAINNET_OPERATOR_KEY,
+      },
+    ],
+  }),
+}
+```
+
+## DID Method Specification
+
+Hedera DIDs follow the format:
+
+```
+did:hedera:{network}:{public-key}_{topic-id}
+```
+
+Examples:
+```
+did:hedera:testnet:z6MkpTHR8VNsBxYAAWHut2Geadd9jSwuBV8xRoAnwWsdvktH_0.0.12345
+did:hedera:mainnet:z6Mkk7yqnGF3YwTrLpqrW6PGsKci7dNqh1CjnvMbzrMerSeL_0.0.67890
+```
+
+Where:
+- `network`: Hedera network (mainnet, testnet, previewnet)
+- `public-key`: Multibase-encoded Ed25519 public key
+- `topic-id`: HCS topic ID for DID document
+
+## Best Practices
+
+### 1. Secure Key Storage
+
+```typescript
+// NEVER commit private keys to version control
+// Use environment variables or secret management
+operatorKey: process.env.HEDERA_OPERATOR_KEY
+```
+
+### 2. Monitor HBAR Balance
+
+```typescript
+// Check balance before operations
+const balance = await agent.modules.hedera.getAccountBalance({ network: 'testnet', accountId })
+
+if (balance.hbars.toBigNumber().isLessThan(minimumRequired)) {
+  throw new Error('Insufficient HBAR for transaction')
+}
+```
+
+### 3. Use Testnet for Development
+
+```typescript
+const network = process.env.NODE_ENV === 'production' ? 'mainnet' : 'testnet'
+
+modules: {
+  hedera: new HederaModule({
+    networks: [{
+      network,
+      operatorId: process.env[`HEDERA_${network.toUpperCase()}_OPERATOR_ID`],
+      operatorKey: process.env[`HEDERA_${network.toUpperCase()}_OPERATOR_KEY`],
+    }],
+  }),
+}
+```
+
+### 4. Handle Transaction Errors
+
+```typescript
+try {
+  const didResult = await agent.dids.create({ method: 'hedera', /* ... */ })
+} catch (error) {
+  if (error.message.includes('INSUFFICIENT_ACCOUNT_BALANCE')) {
+    // Handle low balance
+  } else if (error.message.includes('TIMEOUT')) {
+    // Handle network timeout - may need to retry
+  }
+}
+```
+
+### 5. Pin Dependency Versions
+
+Since the module is experimental:
+
+```json
+{
+  "dependencies": {
+    "@credo-ts/core": "0.6.2",
+    "@credo-ts/hedera": "0.6.2",
+    "@credo-ts/anoncreds": "0.6.2"
+  }
+}
+```
+
+## Performance Benefits
+
+### Fast Finality
+
+- Transaction finality: 3-5 seconds
+- No need to wait for block confirmations
+- Near real-time DID operations
+
+### Scalability
+
+- Hedera can handle 10,000+ TPS
+- Suitable for high-volume credential issuance
+- Predictable performance under load
+
+### Cost Efficiency
+
+- Fixed, predictable fees
+- Much lower than Ethereum gas fees
+- Suitable for micro-transactions
+
+## Platform Support
+
+The Hedera module supports:
+
+- **Node.js** - Full support
+- **React Native** - Full support  
+- **Browser** - Experimental (requires Buffer polyfill)
+
+## API Reference
+
+### DID Operations
+
+- `agent.dids.create({ method: 'hedera', ... })` - Create did:hedera DID
+- `agent.dids.resolve('did:hedera:...')` - Resolve DID
+- `agent.dids.update({ did: 'did:hedera:...', ... })` - Update DID document
+- `agent.dids.deactivate({ did: 'did:hedera:...' })` - Deactivate DID
+
+### Utility
+
+- `agent.modules.hedera.getAccountBalance()` - Check HBAR balance
+
+## Troubleshooting
+
+### Transaction Failures
+
+If transactions fail:
+
+1. Check HBAR balance
+2. Verify operator ID and key are correct
+3. Check network status at [Hedera Status](https://status.hedera.com/)
+4. Ensure sufficient account balance for fees
+
+### DID Resolution Issues
+
+```typescript
+const result = await agent.dids.resolve('did:hedera:testnet:...')
+
+if (result.didResolutionMetadata.error) {
+  console.error('Resolution error:', result.didResolutionMetadata.error)
+  // Common issues:
+  // - Topic not found (DID doesn't exist)
+  // - Mirror node sync delay (wait a few seconds)
+  // - Network connectivity issues
+}
+```
+
+### Mirror Node Delays
+
+Mirror nodes may have a slight delay (~2-5 seconds) syncing from consensus nodes:
+
+```typescript
+// After creating DID, wait briefly before resolving
+await new Promise(resolve => setTimeout(resolve, 5000))
+const didDoc = await agent.dids.resolve(did)
+```
+
+## Experimental Status
+
+This module is experimental. Expect:
+
+- Potential breaking changes in minor versions
+- Evolving APIs as Hedera DID method matures
+- Active development and improvements
+
+For production use:
+- Pin exact versions of all @credo-ts packages
+- Test thoroughly before upgrading
+- Monitor the [changelog](https://github.com/openwallet-foundation/credo-ts/blob/main/CHANGELOG.md)
+
+## Source Code
+
+View the source code at:
+- [packages/hedera](https://github.com/openwallet-foundation/credo-ts/tree/main/packages/hedera)
+- [Hedera Documentation](https://docs.hedera.com/)
+- [Hiero DID SDK](https://github.com/hashgraph/did-sdk-js)
+
+## Related Documentation
+
+- [AnonCreds Module](/modules/anoncreds)
+- [Hedera Network](https://hedera.com/)
+- [Hedera Consensus Service](https://hedera.com/consensus-service)
+- [did:hedera Method](https://github.com/hashgraph/did-method)

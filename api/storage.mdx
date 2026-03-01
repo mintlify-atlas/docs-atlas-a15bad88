@@ -1,0 +1,454 @@
+---
+title: 'StorageService and Repository'
+description: 'Storage layer APIs for persistent data'
+---
+
+## Overview
+
+Credo provides a flexible storage layer with two main components:
+- **StorageService**: Low-level storage interface
+- **Repository**: High-level data access with event emission
+
+## StorageService
+
+The StorageService interface defines the contract for storage implementations.
+
+### Interface
+
+```typescript
+interface StorageService<T extends BaseRecord> {
+  save(agentContext: AgentContext, record: T): Promise<void>
+  update(agentContext: AgentContext, record: T): Promise<void>
+  delete(agentContext: AgentContext, record: T): Promise<void>
+  deleteById(agentContext: AgentContext, recordClass: BaseRecordConstructor<T>, id: string): Promise<void>
+  getById(agentContext: AgentContext, recordClass: BaseRecordConstructor<T>, id: string): Promise<T>
+  getAll(agentContext: AgentContext, recordClass: BaseRecordConstructor<T>): Promise<T[]>
+  findByQuery(
+    agentContext: AgentContext,
+    recordClass: BaseRecordConstructor<T>,
+    query: Query<T>,
+    queryOptions?: QueryOptions
+  ): Promise<T[]>
+}
+```
+
+### Query Options
+
+```typescript
+type QueryOptions = {
+  limit?: number
+  offset?: number
+  cursor?: {
+    before?: string
+    after?: string
+  }
+}
+```
+
+### Query Syntax
+
+```typescript
+// Simple query
+const query: Query<DidCommConnectionRecord> = {
+  state: DidCommConnectionState.Completed,
+  theirLabel: 'Alice',
+}
+
+// Advanced query with operators
+const advancedQuery: Query<DidCommConnectionRecord> = {
+  $or: [
+    { state: DidCommConnectionState.Completed },
+    { state: DidCommConnectionState.ResponseSent },
+  ],
+  $and: [
+    { role: DidCommConnectionRole.Inviter },
+  ],
+}
+```
+
+## Repository
+
+The Repository class provides high-level access to stored records with automatic event emission.
+
+### Constructor
+
+```typescript
+import { Repository } from '@credo-ts/core'
+
+const repository = new Repository(
+  recordClass,
+  storageService,
+  eventEmitter
+)
+```
+
+### Methods
+
+#### save()
+
+Save a new record.
+
+```typescript
+await repository.save(agentContext, record)
+```
+
+<ParamField path="agentContext" type="AgentContext" required>
+  Agent context
+</ParamField>
+
+<ParamField path="record" type="T" required>
+  Record to save
+</ParamField>
+
+**Returns:** `Promise<void>`
+
+**Throws:** `RecordDuplicateError` if record with ID already exists
+
+**Emits:** `RecordSavedEvent`
+
+#### update()
+
+Update an existing record.
+
+```typescript
+await repository.update(agentContext, record)
+```
+
+<ParamField path="agentContext" type="AgentContext" required>
+  Agent context
+</ParamField>
+
+<ParamField path="record" type="T" required>
+  Record to update
+</ParamField>
+
+**Returns:** `Promise<void>`
+
+**Throws:** `RecordNotFoundError` if record doesn't exist
+
+**Emits:** `RecordUpdatedEvent`
+
+#### updateByIdWithLock()
+
+Update a record with locking support (if storage supports it).
+
+```typescript
+const updatedRecord = await repository.updateByIdWithLock(
+  agentContext,
+  recordId,
+  async (record) => {
+    record.metadata.set('counter', record.metadata.get('counter') + 1)
+    return record
+  }
+)
+```
+
+<ParamField path="agentContext" type="AgentContext" required>
+  Agent context
+</ParamField>
+
+<ParamField path="id" type="string" required>
+  Record ID
+</ParamField>
+
+<ParamField path="updateCallback" type="(record: T) => Promise<T>" required>
+  Callback that receives the record and returns the updated record
+</ParamField>
+
+**Returns:** `Promise<T>`
+
+**Emits:** `RecordUpdatedEvent`
+
+#### delete()
+
+Delete a record.
+
+```typescript
+await repository.delete(agentContext, record)
+```
+
+<ParamField path="agentContext" type="AgentContext" required>
+  Agent context
+</ParamField>
+
+<ParamField path="record" type="T" required>
+  Record to delete
+</ParamField>
+
+**Returns:** `Promise<void>`
+
+**Emits:** `RecordDeletedEvent`
+
+#### deleteById()
+
+Delete a record by ID.
+
+```typescript
+await repository.deleteById(agentContext, recordId)
+```
+
+<ParamField path="agentContext" type="AgentContext" required>
+  Agent context
+</ParamField>
+
+<ParamField path="id" type="string" required>
+  Record ID
+</ParamField>
+
+**Returns:** `Promise<void>`
+
+**Throws:** `RecordNotFoundError` if record doesn't exist
+
+**Emits:** `RecordDeletedEvent`
+
+#### getById()
+
+Retrieve a record by ID.
+
+```typescript
+const record = await repository.getById(agentContext, recordId)
+```
+
+<ParamField path="agentContext" type="AgentContext" required>
+  Agent context
+</ParamField>
+
+<ParamField path="id" type="string" required>
+  Record ID
+</ParamField>
+
+**Returns:** `Promise<T>`
+
+**Throws:** `RecordNotFoundError` if record doesn't exist
+
+#### findById()
+
+Find a record by ID (returns null if not found).
+
+```typescript
+const record = await repository.findById(agentContext, recordId)
+
+if (record) {
+  console.log('Found record')
+} else {
+  console.log('Record not found')
+}
+```
+
+<ParamField path="agentContext" type="AgentContext" required>
+  Agent context
+</ParamField>
+
+<ParamField path="id" type="string" required>
+  Record ID
+</ParamField>
+
+**Returns:** `Promise<T | null>`
+
+#### getAll()
+
+Retrieve all records.
+
+```typescript
+const records = await repository.getAll(agentContext)
+```
+
+<ParamField path="agentContext" type="AgentContext" required>
+  Agent context
+</ParamField>
+
+**Returns:** `Promise<T[]>`
+
+#### findByQuery()
+
+Find records by query.
+
+```typescript
+const records = await repository.findByQuery(
+  agentContext,
+  {
+    state: DidCommConnectionState.Completed,
+  },
+  {
+    limit: 10,
+    offset: 0,
+  }
+)
+```
+
+<ParamField path="agentContext" type="AgentContext" required>
+  Agent context
+</ParamField>
+
+<ParamField path="query" type="Query<T>" required>
+  Query object
+</ParamField>
+
+<ParamField path="queryOptions" type="QueryOptions" optional>
+  Query options (limit, offset, cursor)
+</ParamField>
+
+**Returns:** `Promise<T[]>`
+
+#### findSingleByQuery()
+
+Find a single record by query.
+
+```typescript
+const record = await repository.findSingleByQuery(
+  agentContext,
+  { did: 'did:key:...' }
+)
+
+if (record) {
+  console.log('Found record')
+}
+```
+
+<ParamField path="agentContext" type="AgentContext" required>
+  Agent context
+</ParamField>
+
+<ParamField path="query" type="Query<T>" required>
+  Query object
+</ParamField>
+
+<ParamField path="options" type="{ cacheKey?: string }" optional>
+  Options including optional cache key
+</ParamField>
+
+**Returns:** `Promise<T | null>`
+
+**Throws:** `RecordDuplicateError` if multiple records match
+
+#### getSingleByQuery()
+
+Get a single record by query (throws if not found).
+
+```typescript
+const record = await repository.getSingleByQuery(
+  agentContext,
+  { did: 'did:key:...' }
+)
+```
+
+<ParamField path="agentContext" type="AgentContext" required>
+  Agent context
+</ParamField>
+
+<ParamField path="query" type="Query<T>" required>
+  Query object
+</ParamField>
+
+**Returns:** `Promise<T>`
+
+**Throws:** `RecordNotFoundError` if no record matches, `RecordDuplicateError` if multiple records match
+
+#### supportsLocking()
+
+Check if the storage service supports locking.
+
+```typescript
+if (repository.supportsLocking(agentContext)) {
+  // Use updateByIdWithLock for concurrent updates
+} else {
+  // Use regular update
+}
+```
+
+<ParamField path="agentContext" type="AgentContext" required>
+  Agent context
+</ParamField>
+
+**Returns:** `boolean`
+
+## Creating Custom Repositories
+
+```typescript
+import { BaseRecord, Repository, injectable, inject } from '@credo-ts/core'
+
+class MyCustomRecord extends BaseRecord {
+  public static readonly type = 'MyCustomRecord'
+  
+  public name!: string
+  public value!: string
+  
+  public getTags() {
+    return {
+      ...this._tags,
+      name: this.name,
+    }
+  }
+}
+
+@injectable()
+class MyCustomRepository extends Repository<MyCustomRecord> {
+  public constructor(
+    @inject(InjectionSymbols.StorageService) storageService: StorageService<MyCustomRecord>,
+    eventEmitter: EventEmitter
+  ) {
+    super(MyCustomRecord, storageService, eventEmitter)
+  }
+  
+  // Add custom methods
+  public async findByName(agentContext: AgentContext, name: string) {
+    return this.findSingleByQuery(agentContext, { name })
+  }
+}
+```
+
+## Storage Events
+
+```typescript
+import { RepositoryEventTypes } from '@credo-ts/core'
+
+agent.events.on(RepositoryEventTypes.RecordSaved, (event) => {
+  console.log('Record saved:', event.payload.record)
+})
+
+agent.events.on(RepositoryEventTypes.RecordUpdated, (event) => {
+  console.log('Record updated:', event.payload.record)
+})
+
+agent.events.on(RepositoryEventTypes.RecordDeleted, (event) => {
+  console.log('Record deleted:', event.payload.record)
+})
+```
+
+## Storage Implementations
+
+Credo supports multiple storage backends:
+
+### Askar (Recommended)
+
+```typescript
+import { AskarModule } from '@credo-ts/askar'
+import { ariesAskar } from '@hyperledger/aries-askar-nodejs'
+
+const agent = new Agent({
+  // ...
+  modules: {
+    askar: new AskarModule({ ariesAskar }),
+  },
+})
+```
+
+### Drizzle
+
+```typescript
+import { DrizzleStorageModule } from '@credo-ts/drizzle-storage'
+
+const agent = new Agent({
+  // ...
+  modules: {
+    drizzleStorage: new DrizzleStorageModule({
+      // Database configuration
+    }),
+  },
+})
+```
+
+## See Also
+
+- [CacheModule](/api/cache) - Caching layer on top of storage
+- [BaseRecord](https://github.com/openwallet-foundation/credo-ts/blob/main/packages/core/src/storage/BaseRecord.ts) - Base class for records

@@ -1,0 +1,374 @@
+---
+title: Establishing Connections
+description: Complete guide to establishing DIDComm connections between agents
+---
+
+This guide demonstrates how to establish secure peer-to-peer connections between Credo agents using the DIDComm protocol.
+
+## Basic Connection Flow
+
+DIDComm connections are established through an invitation-based flow where one agent creates an invitation and another agent accepts it.
+
+<Steps>
+
+### Initialize Both Agents
+
+Set up two agents that will connect with each other:
+
+```typescript
+import { Agent } from '@credo-ts/core'
+import {
+  DidCommModule,
+  DidCommHttpOutboundTransport,
+} from '@credo-ts/didcomm'
+import { AskarModule } from '@credo-ts/askar'
+import { agentDependencies, DidCommHttpInboundTransport } from '@credo-ts/node'
+import { askar } from '@openwallet-foundation/askar-nodejs'
+
+// Agent 1 (Inviter)
+const faberAgent = new Agent({
+  config: {
+    label: 'Faber College',
+    walletConfig: {
+      id: 'faber-wallet',
+      key: 'faber-wallet-key',
+    },
+  },
+  dependencies: agentDependencies,
+  modules: {
+    didcomm: new DidCommModule({
+      endpoints: ['http://localhost:3001'],
+      transports: {
+        inbound: [new DidCommHttpInboundTransport({ port: 3001 })],
+        outbound: [new DidCommHttpOutboundTransport()],
+      },
+      connections: {
+        autoAcceptConnections: true,
+      },
+    }),
+    askar: new AskarModule({ askar }),
+  },
+})
+
+// Agent 2 (Invitee)
+const aliceAgent = new Agent({
+  config: {
+    label: 'Alice',
+    walletConfig: {
+      id: 'alice-wallet',
+      key: 'alice-wallet-key',
+    },
+  },
+  dependencies: agentDependencies,
+  modules: {
+    didcomm: new DidCommModule({
+      endpoints: ['http://localhost:3002'],
+      transports: {
+        inbound: [new DidCommHttpInboundTransport({ port: 3002 })],
+        outbound: [new DidCommHttpOutboundTransport()],
+      },
+      connections: {
+        autoAcceptConnections: true,
+      },
+    }),
+    askar: new AskarModule({ askar }),
+  },
+})
+
+await faberAgent.initialize()
+await aliceAgent.initialize()
+```
+
+### Create an Out-of-Band Invitation
+
+The inviting agent creates an invitation:
+
+```typescript
+import { DidCommHandshakeProtocol } from '@credo-ts/didcomm'
+
+const outOfBandRecord = await faberAgent.didcomm.oob.createInvitation({
+  handshakeProtocols: [DidCommHandshakeProtocol.Connections],
+  label: 'Faber College Invitation',
+  multiUseInvitation: false,
+})
+
+const invitation = outOfBandRecord.outOfBandInvitation
+const invitationUrl = invitation.toUrl({ domain: 'https://example.com' })
+
+console.log('Invitation URL:', invitationUrl)
+console.log('Share this URL with Alice via QR code or link')
+```
+
+### Receive and Accept the Invitation
+
+The receiving agent accepts the invitation:
+
+```typescript
+const { connectionRecord } = await aliceAgent.didcomm.oob.receiveInvitationFromUrl(
+  invitationUrl,
+  {
+    label: 'Alice',
+  }
+)
+
+if (!connectionRecord) {
+  throw new Error('No connection record created from invitation')
+}
+
+console.log('Connection initiated:', connectionRecord.id)
+```
+
+### Wait for Connection to Complete
+
+Wait for both sides to establish the connection:
+
+```typescript
+import { DidCommDidExchangeState } from '@credo-ts/didcomm'
+
+// Wait on Alice's side
+const aliceConnection = await aliceAgent.didcomm.connections.returnWhenIsConnected(
+  connectionRecord.id
+)
+
+console.log('Alice connection state:', aliceConnection.state)
+// Output: 'completed'
+
+// Get connection on Faber's side
+const [faberConnection] = await faberAgent.didcomm.connections.findAllByOutOfBandId(
+  outOfBandRecord.id
+)
+
+const completedFaberConnection = await faberAgent.didcomm.connections.returnWhenIsConnected(
+  faberConnection.id
+)
+
+console.log('Faber connection state:', completedFaberConnection.state)
+// Output: 'completed'
+```
+
+### Test the Connection
+
+Send a trust ping to verify the connection:
+
+```typescript
+const ping = await aliceAgent.didcomm.connections.sendPing(
+  aliceConnection.id,
+  {}
+)
+
+console.log('Trust ping sent:', ping.threadId)
+
+// Listen for ping response
+import { DidCommConnectionEventTypes } from '@credo-ts/didcomm'
+
+aliceAgent.events.on(
+  DidCommConnectionEventTypes.DidCommTrustPingResponseReceivedEvent,
+  (event) => {
+    if (event.payload.threadId === ping.threadId) {
+      console.log('✓ Connection verified with trust ping')
+    }
+  }
+)
+```
+
+</Steps>
+
+## Multi-Use Invitations
+
+Create invitations that can be used by multiple agents:
+
+```typescript
+const multiUseOutOfBand = await faberAgent.didcomm.oob.createInvitation({
+  handshakeProtocols: [DidCommHandshakeProtocol.Connections],
+  multiUseInvitation: true,
+  label: 'Faber College - Ongoing Admissions',
+})
+
+const invitationUrl = multiUseOutOfBand.outOfBandInvitation.toUrl({ 
+  domain: 'https://faber.edu' 
+})
+
+console.log('Multi-use invitation URL:', invitationUrl)
+// This URL can be shared with multiple students
+
+// First student accepts
+const { connectionRecord: alice } = await aliceAgent.didcomm.oob.receiveInvitationFromUrl(
+  invitationUrl,
+  { label: 'Alice' }
+)
+
+// Second student accepts the same invitation
+const { connectionRecord: bob } = await bobAgent.didcomm.oob.receiveInvitationFromUrl(
+  invitationUrl,
+  { label: 'Bob', reuseConnection: false }
+)
+
+// Faber now has connections with both Alice and Bob
+```
+
+## Connection Events
+
+Monitor connection state changes:
+
+```typescript
+import { DidCommConnectionEventTypes } from '@credo-ts/didcomm'
+
+aliceAgent.events.on(
+  DidCommConnectionEventTypes.DidCommConnectionStateChanged,
+  (event) => {
+    console.log('Connection state changed:', {
+      connectionId: event.payload.connectionRecord.id,
+      previousState: event.payload.previousState,
+      newState: event.payload.connectionRecord.state,
+    })
+    
+    if (event.payload.connectionRecord.state === 'completed') {
+      console.log('✓ Connection established successfully')
+    }
+  }
+)
+```
+
+## Connection with Mediator
+
+Establish connections through a mediator for mobile/edge devices:
+
+<Steps>
+
+### Connect to Mediator
+
+```typescript
+// Alice connects to a mediator first
+const mediatorInvitationUrl = 'https://mediator.example.com/invitation'
+
+const { connectionRecord: mediatorConnection } = 
+  await aliceAgent.didcomm.oob.receiveInvitationFromUrl(mediatorInvitationUrl)
+
+if (!mediatorConnection) {
+  throw new Error('Failed to create mediator connection')
+}
+
+await aliceAgent.didcomm.connections.returnWhenIsConnected(mediatorConnection.id)
+```
+
+### Request Mediation
+
+```typescript
+const mediationRecord = await aliceAgent.didcomm.mediationRecipient.requestMediation(
+  mediatorConnection.id
+)
+
+console.log('Mediation granted:', mediationRecord.state)
+
+// Set as default mediator
+await aliceAgent.didcomm.mediationRecipient.setDefaultMediator(mediationRecord)
+```
+
+### Create Mediated Connection
+
+Now Alice can receive connections through the mediator:
+
+```typescript
+// Alice creates an invitation (will automatically use mediator)
+const aliceInvitation = await aliceAgent.didcomm.oob.createInvitation()
+
+const aliceInvitationUrl = aliceInvitation.outOfBandInvitation.toUrl({
+  domain: 'https://alice.example.com',
+})
+
+// The invitation includes the mediator's routing information
+console.log('Mediated invitation:', aliceInvitationUrl)
+```
+
+</Steps>
+
+## Connectionless Exchange
+
+For one-time interactions without establishing a persistent connection:
+
+```typescript
+// Create a connectionless invitation with a credential offer
+const outOfBand = await faberAgent.didcomm.oob.createInvitation({
+  messages: [
+    // Include the credential offer directly in the invitation
+    await faberAgent.didcomm.credentials.createOfferMessage({
+      protocolVersion: 'v2',
+      credentialFormats: {
+        anoncreds: {
+          credentialDefinitionId: 'credDefId123',
+          attributes: [
+            { name: 'name', value: 'Alice' },
+            { name: 'degree', value: 'Computer Science' },
+          ],
+        },
+      },
+    }),
+  ],
+})
+
+const invitationUrl = outOfBand.outOfBandInvitation.toUrl({ 
+  domain: 'https://faber.edu' 
+})
+
+// Alice can accept the credential without establishing a connection
+await aliceAgent.didcomm.oob.receiveInvitationFromUrl(invitationUrl)
+```
+
+## Manual Connection Flow
+
+For scenarios requiring manual intervention:
+
+```typescript
+// Create invitation without auto-accept
+const manualFaberAgent = new Agent({
+  config: {
+    label: 'Faber Manual',
+  },
+  modules: {
+    didcomm: new DidCommModule({
+      connections: {
+        autoAcceptConnections: false, // Manual acceptance
+      },
+    }),
+  },
+})
+
+const invitation = await manualFaberAgent.didcomm.oob.createInvitation()
+
+// Listen for connection request
+manualFaberAgent.events.on(
+  DidCommConnectionEventTypes.DidCommConnectionStateChanged,
+  async (event) => {
+    const connection = event.payload.connectionRecord
+    
+    if (connection.state === 'request-received') {
+      console.log('Connection request received from:', connection.theirLabel)
+      
+      // Apply custom logic to accept or reject
+      const shouldAccept = await customValidationLogic(connection)
+      
+      if (shouldAccept) {
+        await manualFaberAgent.didcomm.connections.acceptRequest(connection.id)
+        console.log('✓ Connection request accepted')
+      } else {
+        console.log('✗ Connection request rejected')
+      }
+    }
+  }
+)
+```
+
+## Best Practices
+
+- Use `multiUseInvitation: false` for one-to-one connections
+- Set `autoAcceptConnections: true` for better user experience in trusted scenarios
+- Always wait for connection state to be 'completed' before exchanging messages
+- Use mediators for mobile agents to handle offline message delivery
+- Implement proper error handling for network failures during connection establishment
+- Store connection records for future interactions
+
+## Next Steps
+
+- Learn about [Issuing Credentials](/examples/issuing-credentials)
+- Explore [Verifying Presentations](/examples/verifying-presentations)
+- Set up [Multi-tenant Agents](/examples/multi-tenant-setup)

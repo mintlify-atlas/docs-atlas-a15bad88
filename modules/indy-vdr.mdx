@@ -1,0 +1,519 @@
+---
+title: '@credo-ts/indy-vdr'
+description: Hyperledger Indy ledger integration for AnonCreds
+---
+
+The Indy VDR (Verifiable Data Registry) module provides integration with Hyperledger Indy ledgers, enabling AnonCreds schema and credential definition registration and resolution.
+
+## Overview
+
+Indy VDR enables:
+
+- **Ledger connectivity** - Connect to Hyperledger Indy networks
+- **AnonCreds registry** - Read and write schemas, credential definitions, and revocation registries
+- **DID operations** - Create and resolve `did:indy` DIDs
+- **Pool management** - Manage connections to multiple Indy networks
+- **Transaction endorsement** - Support for transaction author/endorser workflows
+
+## Installation
+
+```bash
+npm install @credo-ts/indy-vdr @credo-ts/anoncreds @hyperledger/indy-vdr-nodejs
+```
+
+## Dependencies
+
+Indy VDR requires:
+
+- `@credo-ts/core` - Core functionality
+- `@credo-ts/anoncreds` - AnonCreds support
+- `@hyperledger/indy-vdr-shared` - Native Indy VDR library
+
+## Registration
+
+```typescript
+import { Agent } from '@credo-ts/core'
+import { IndyVdrModule, IndyVdrAnonCredsRegistry } from '@credo-ts/indy-vdr'
+import { AnonCredsModule } from '@credo-ts/anoncreds'
+import { indyVdr } from '@hyperledger/indy-vdr-nodejs'
+import { anoncreds } from '@hyperledger/anoncreds-nodejs'
+
+const agent = new Agent({
+  config: { /* ... */ },
+  dependencies: agentDependencies,
+  modules: {
+    indyVdr: new IndyVdrModule({
+      indyVdr,
+      networks: [
+        {
+          indyNamespace: 'bcovrin:test',
+          isProduction: false,
+          genesisTransactions: '<genesis transactions>',
+          connectOnStartup: true,
+        },
+      ],
+    }),
+    anoncreds: new AnonCredsModule({
+      anoncreds,
+      registries: [new IndyVdrAnonCredsRegistry()],
+    }),
+  },
+})
+
+await agent.initialize()
+```
+
+## Configuration Options
+
+```typescript
+interface IndyVdrModuleConfigOptions {
+  // Native Indy VDR library instance
+  indyVdr: IndyVdr
+  
+  // Indy networks to connect to
+  networks: IndyVdrPoolConfig[]
+}
+
+interface IndyVdrPoolConfig {
+  // Unique identifier for the network
+  indyNamespace: string
+  
+  // Whether this is a production network
+  isProduction: boolean
+  
+  // Genesis transactions (required)
+  genesisTransactions: string
+  
+  // Connect to network on agent startup
+  connectOnStartup?: boolean
+  
+  // Transaction author agreement configuration
+  transactionAuthorAgreement?: {
+    version: string
+    acceptanceMechanism: string
+  }
+}
+```
+
+## Indy Networks
+
+### Common Networks
+
+#### BCovrin Test Network
+
+```typescript
+import { fetchIndyGenesisTransactions } from '@credo-ts/indy-vdr'
+
+const bcovrinTestGenesis = await fetchIndyGenesisTransactions(
+  'http://test.bcovrin.vonx.io/genesis'
+)
+
+networks: [
+  {
+    indyNamespace: 'bcovrin:test',
+    isProduction: false,
+    genesisTransactions: bcovrinTestGenesis,
+    connectOnStartup: true,
+  },
+]
+```
+
+#### Sovrin StagingNet
+
+```typescript
+const sovrinStagingGenesis = await fetchIndyGenesisTransactions(
+  'https://raw.githubusercontent.com/sovrin-foundation/sovrin/stable/sovrin/pool_transactions_sandbox_genesis'
+)
+
+networks: [
+  {
+    indyNamespace: 'sovrin:staging',
+    isProduction: false,
+    genesisTransactions: sovrinStagingGenesis,
+  },
+]
+```
+
+#### Sovrin MainNet
+
+```typescript
+const sovrinMainGenesis = await fetchIndyGenesisTransactions(
+  'https://raw.githubusercontent.com/sovrin-foundation/sovrin/stable/sovrin/pool_transactions_live_genesis'
+)
+
+networks: [
+  {
+    indyNamespace: 'sovrin',
+    isProduction: true,
+    genesisTransactions: sovrinMainGenesis,
+    transactionAuthorAgreement: {
+      version: '1.0',
+      acceptanceMechanism: 'on_file',
+    },
+  },
+]
+```
+
+### Multiple Networks
+
+```typescript
+networks: [
+  {
+    indyNamespace: 'bcovrin:test',
+    isProduction: false,
+    genesisTransactions: bcovrinTestGenesis,
+  },
+  {
+    indyNamespace: 'sovrin:staging',
+    isProduction: false,
+    genesisTransactions: sovrinStagingGenesis,
+  },
+]
+```
+
+## AnonCreds Operations
+
+### Register Schema
+
+```typescript
+const schema = await agent.modules.anoncreds.registerSchema({
+  schema: {
+    name: 'Employee Schema',
+    version: '1.0',
+    attrNames: ['name', 'employee_id', 'position'],
+    issuerId: 'did:indy:bcovrin:test:BzCbsNYhMrjHiqZDTUASHg',
+  },
+  options: {
+    // Indy VDR specific options
+    endorserMode: 'internal',
+    endorserDid: 'did:indy:bcovrin:test:...',
+  },
+})
+
+console.log('Schema ID:', schema.schemaState.schemaId)
+// did:indy:bcovrin:test:BzCbsNYhMrjHiqZDTUASHg/anoncreds/v0/SCHEMA/Employee Schema/1.0
+```
+
+### Register Credential Definition
+
+```typescript
+const credDef = await agent.modules.anoncreds.registerCredentialDefinition({
+  credentialDefinition: {
+    tag: 'employee',
+    issuerId: 'did:indy:bcovrin:test:BzCbsNYhMrjHiqZDTUASHg',
+    schemaId: schema.schemaState.schemaId,
+  },
+  options: {},
+})
+
+console.log('Cred Def ID:', credDef.credentialDefinitionState.credentialDefinitionId)
+```
+
+### Register Revocation Registry
+
+```typescript
+const revRegDef = await agent.modules.anoncreds.registerRevocationRegistryDefinition({
+  revocationRegistryDefinition: {
+    credentialDefinitionId: credDef.credentialDefinitionState.credentialDefinitionId,
+    issuerId: 'did:indy:bcovrin:test:BzCbsNYhMrjHiqZDTUASHg',
+    tag: 'default',
+    maximumCredentialNumber: 1000,
+  },
+  options: {},
+})
+```
+
+## DID Operations
+
+### Create did:indy DID
+
+```typescript
+// Create and register DID on ledger
+const didResult = await agent.dids.create({
+  method: 'indy',
+  options: {
+    indyNamespace: 'bcovrin:test',
+    endorserMode: 'internal',
+    endorserDid: 'did:indy:bcovrin:test:...',
+  },
+})
+
+console.log('Created DID:', didResult.didState.did)
+// did:indy:bcovrin:test:BzCbsNYhMrjHiqZDTUASHg
+```
+
+### Import Existing DID
+
+If you have an existing Indy DID with keys:
+
+```typescript
+import { TypedArrayEncoder } from '@credo-ts/core'
+
+const didResult = await agent.dids.import({
+  did: 'did:indy:bcovrin:test:BzCbsNYhMrjHiqZDTUASHg',
+  privateKeys: [
+    {
+      keyType: 'ed25519',
+      privateKey: TypedArrayEncoder.fromString('...'),
+    },
+  ],
+})
+```
+
+### Resolve did:indy DID
+
+```typescript
+const didDocument = await agent.dids.resolve(
+  'did:indy:bcovrin:test:BzCbsNYhMrjHiqZDTUASHg'
+)
+
+if (didDocument.didDocument) {
+  console.log('DID Document:', didDocument.didDocument)
+}
+```
+
+## Endorser Workflow
+
+For networks requiring transaction endorsement:
+
+### Author Role
+
+```typescript
+// Author creates transaction without writing to ledger
+const schema = await agent.modules.anoncreds.registerSchema({
+  schema: {
+    name: 'My Schema',
+    version: '1.0',
+    attrNames: ['name'],
+    issuerId: authorDid,
+  },
+  options: {
+    endorserMode: 'external',
+    endorserDid: endorserDid,
+  },
+})
+
+if (schema.schemaState.state === 'action') {
+  // Send to endorser
+  const signedTransaction = schema.schemaState.action
+  // ... send to endorser
+}
+```
+
+### Endorser Role
+
+```typescript
+// Endorser signs and submits transaction
+const result = await agent.modules.indyVdr.endorseTransaction({
+  transaction: signedTransaction,
+  endorserDid: endorserDid,
+})
+```
+
+## Pool Management
+
+### Get Pool Connections
+
+```typescript
+const pools = agent.modules.indyVdr.pools
+
+for (const pool of pools) {
+  console.log(`Pool: ${pool.config.indyNamespace}`)
+  console.log(`Connected: ${pool.isOpen}`)
+}
+```
+
+### Connect to Pool
+
+```typescript
+const pool = agent.modules.indyVdr.getPoolForNamespace('bcovrin:test')
+
+await pool.connect()
+```
+
+### Disconnect from Pool
+
+```typescript
+const pool = agent.modules.indyVdr.getPoolForNamespace('bcovrin:test')
+
+if (pool.isOpen) {
+  await pool.close()
+}
+```
+
+## Transaction Author Agreement
+
+Some networks require accepting a Transaction Author Agreement (TAA):
+
+```typescript
+const agent = new Agent({
+  config: { /* ... */ },
+  modules: {
+    indyVdr: new IndyVdrModule({
+      indyVdr,
+      networks: [
+        {
+          indyNamespace: 'sovrin',
+          isProduction: true,
+          genesisTransactions: sovrinGenesis,
+          transactionAuthorAgreement: {
+            version: '1.0',
+            acceptanceMechanism: 'on_file',
+          },
+        },
+      ],
+    }),
+  },
+})
+```
+
+## Advanced Usage
+
+### Custom Pool Requests
+
+```typescript
+import { GetSchemaRequest } from '@hyperledger/indy-vdr-shared'
+
+const pool = agent.modules.indyVdr.getPoolForNamespace('bcovrin:test')
+
+// Build custom request
+const request = new GetSchemaRequest({
+  submitterDid: 'did:indy:bcovrin:test:...',
+  schemaId: 'BzCbsNYhMrjHiqZDTUASHg:2:schema_name:1.0',
+})
+
+// Submit to pool
+const response = await pool.submitRequest(request)
+```
+
+### Cache Management
+
+Indy VDR caches ledger data for performance:
+
+```typescript
+// Cache is managed automatically
+// Schemas and credential definitions are cached after resolution
+```
+
+## Namespace Convention
+
+The `indyNamespace` identifies the network:
+
+- `bcovrin:test` - BCovrin Test Network
+- `sovrin` - Sovrin MainNet
+- `sovrin:staging` - Sovrin StagingNet  
+- `sovrin:builder` - Sovrin BuilderNet
+- `indicio` - Indicio MainNet
+- `indicio:test` - Indicio TestNet
+
+Namespaces are used in DIDs:
+
+```
+did:indy:{namespace}:{identifier}
+did:indy:bcovrin:test:BzCbsNYhMrjHiqZDTUASHg
+```
+
+## Best Practices
+
+### 1. Use Separate Networks for Dev/Prod
+
+```typescript
+const networks = process.env.NODE_ENV === 'production'
+  ? [{ indyNamespace: 'sovrin', isProduction: true, /* ... */ }]
+  : [{ indyNamespace: 'bcovrin:test', isProduction: false, /* ... */ }]
+```
+
+### 2. Handle Network Errors
+
+```typescript
+try {
+  const schema = await agent.modules.anoncreds.registerSchema(/* ... */)
+} catch (error) {
+  if (error.message.includes('timeout')) {
+    // Retry logic
+  }
+}
+```
+
+### 3. Cache Genesis Transactions
+
+```typescript
+// Fetch once and store
+const genesis = await fetchIndyGenesisTransactions(url)
+fs.writeFileSync('genesis.txn', genesis)
+
+// Later
+const genesis = fs.readFileSync('genesis.txn', 'utf-8')
+```
+
+## Platform Support
+
+### Node.js
+
+```bash
+npm install @hyperledger/indy-vdr-nodejs
+```
+
+```typescript
+import { indyVdr } from '@hyperledger/indy-vdr-nodejs'
+```
+
+### React Native
+
+```bash
+npm install @hyperledger/indy-vdr-react-native
+```
+
+```typescript
+import { indyVdr } from '@hyperledger/indy-vdr-react-native'
+```
+
+## API Reference
+
+### Module API
+
+- `agent.modules.indyVdr.pools` - Get all pool connections
+- `agent.modules.indyVdr.getPoolForNamespace()` - Get pool by namespace
+- `agent.modules.indyVdr.endorseTransaction()` - Endorse transaction
+
+### Pool API
+
+- `pool.connect()` - Connect to ledger
+- `pool.close()` - Disconnect from ledger
+- `pool.submitRequest()` - Submit custom request
+- `pool.isOpen` - Check connection status
+
+## Troubleshooting
+
+### Connection Issues
+
+If unable to connect to pool:
+
+```typescript
+// Verify genesis transactions
+const pool = agent.modules.indyVdr.getPoolForNamespace('bcovrin:test')
+try {
+  await pool.connect()
+  console.log('Connected successfully')
+} catch (error) {
+  console.error('Connection failed:', error)
+  // Check genesis transactions are correct
+  // Check network connectivity
+}
+```
+
+### Write Permission Errors
+
+Ensure DID has write permissions on the ledger (NYM transaction with TRUST_ANCHOR role or higher).
+
+## Source Code
+
+View the source code at:
+- [packages/indy-vdr](https://github.com/openwallet-foundation/credo-ts/tree/main/packages/indy-vdr)
+- [Indy VDR](https://github.com/hyperledger/indy-vdr)
+
+## Related Documentation
+
+- [AnonCreds Module](/modules/anoncreds)
+- [Hyperledger Indy](https://www.hyperledger.org/projects/hyperledger-indy)
+- [Sovrin Network](https://sovrin.org/)

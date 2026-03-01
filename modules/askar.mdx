@@ -1,0 +1,480 @@
+---
+title: '@credo-ts/askar'
+description: Secure storage and cryptographic operations using Aries Askar
+---
+
+The Askar module provides secure wallet storage and cryptographic key management using Aries Askar, a secure storage and cryptography library designed for decentralized identity applications.
+
+## Overview
+
+Aries Askar provides:
+
+- **Secure storage** - Encrypted database storage for credentials, keys, and records
+- **Key management** - Hardware-backed and software cryptographic operations
+- **Multi-tenancy support** - Efficient multi-tenant storage with profiles or separate databases
+- **Cross-platform** - Works on Node.js, React Native, and browsers (with limitations)
+- **Performance** - Optimized for high-throughput credential operations
+
+## Installation
+
+### Node.js
+
+```bash
+npm install @credo-ts/askar @openwallet-foundation/askar-nodejs
+```
+
+### React Native
+
+```bash
+npm install @credo-ts/askar @openwallet-foundation/askar-react-native
+```
+
+For React Native, additional setup is required. See the [Platform Setup guide](/guides/platform-setup).
+
+## Registration
+
+```typescript
+import { Agent } from '@credo-ts/core'
+import { AskarModule } from '@credo-ts/askar'
+import { ariesAskar } from '@hyperledger/aries-askar-nodejs'
+
+const agent = new Agent({
+  config: {
+    label: 'My Agent',
+    walletConfig: {
+      id: 'my-wallet',
+      key: 'my-secret-wallet-key-must-be-strong',
+    },
+  },
+  dependencies: agentDependencies,
+  modules: {
+    askar: new AskarModule({
+      ariesAskar,
+    }),
+  },
+})
+
+await agent.initialize()
+```
+
+## Configuration Options
+
+```typescript
+interface AskarModuleConfigOptions {
+  // Aries Askar native library instance
+  ariesAskar: AskarNativeLibrary
+  
+  // Enable key management service (default: true)
+  enableKms?: boolean
+  
+  // Enable storage service (default: true)
+  enableStorage?: boolean
+  
+  // Multi-tenancy database scheme
+  multiWalletDatabaseScheme?: AskarMultiWalletDatabaseScheme
+}
+```
+
+### Database Schemes
+
+```typescript
+enum AskarMultiWalletDatabaseScheme {
+  // Single database with profiles (recommended for multi-tenancy)
+  ProfilePerWallet = 'ProfilePerWallet',
+  
+  // Separate database per wallet (better isolation)
+  DatabasePerWallet = 'DatabasePerWallet',
+}
+```
+
+## Storage Backend
+
+Askar supports multiple storage backends:
+
+### SQLite (Default)
+
+```typescript
+const agent = new Agent({
+  config: {
+    walletConfig: {
+      id: 'my-wallet',
+      key: 'my-wallet-key',
+      // SQLite file storage (default)
+      storage: {
+        type: 'sqlite',
+        config: {
+          path: '/path/to/wallet.db',
+        },
+      },
+    },
+  },
+  modules: {
+    askar: new AskarModule({ ariesAskar }),
+  },
+})
+```
+
+### PostgreSQL
+
+```typescript
+const agent = new Agent({
+  config: {
+    walletConfig: {
+      id: 'my-wallet',
+      key: 'my-wallet-key',
+      storage: {
+        type: 'postgres',
+        config: {
+          url: 'postgres://user:password@localhost:5432/database',
+        },
+      },
+    },
+  },
+  modules: {
+    askar: new AskarModule({ ariesAskar }),
+  },
+})
+```
+
+### In-Memory (Testing)
+
+```typescript
+const agent = new Agent({
+  config: {
+    walletConfig: {
+      id: 'my-wallet',
+      key: 'my-wallet-key',
+      storage: {
+        type: 'sqlite',
+        inMemory: true,
+      },
+    },
+  },
+  modules: {
+    askar: new AskarModule({ ariesAskar }),
+  },
+})
+```
+
+## Key Management
+
+Askar provides cryptographic key management capabilities.
+
+### Supported Key Types
+
+- **Ed25519** - EdDSA signatures (default for DIDs)
+- **X25519** - ECDH key agreement
+- **P-256** (secp256r1) - NIST curve
+- **P-384** (secp384r1) - NIST curve  
+- **P-521** (secp521r1) - NIST curve
+- **K-256** (secp256k1) - Bitcoin/Ethereum curve
+- **BLS12-381** - Pairing-based cryptography
+
+### Creating Keys
+
+```typescript
+import { KeyType } from '@credo-ts/core'
+
+// Create Ed25519 key
+const ed25519Key = await agent.wallet.createKey({
+  keyType: KeyType.Ed25519,
+})
+
+// Create P-256 key
+const p256Key = await agent.wallet.createKey({
+  keyType: KeyType.P256,
+})
+```
+
+### Signing and Verification
+
+Askar handles signing operations transparently:
+
+```typescript
+import { JwsService } from '@credo-ts/core'
+
+const jwsService = agent.dependencyManager.resolve(JwsService)
+
+// Create JWS
+const jws = await jwsService.createJws(agentContext, {
+  payload: { data: 'example' },
+  key: ed25519Key,
+  header: { alg: 'EdDSA' },
+})
+
+// Verify JWS
+const verified = await jwsService.verifyJws(agentContext, {
+  jws,
+})
+```
+
+## Multi-Tenancy
+
+Askar is optimized for multi-tenant deployments.
+
+### Profile Per Wallet (Recommended)
+
+```typescript
+import { AskarMultiWalletDatabaseScheme } from '@credo-ts/askar'
+
+const agent = new Agent({
+  config: { /* ... */ },
+  modules: {
+    askar: new AskarModule({
+      ariesAskar,
+      multiWalletDatabaseScheme: AskarMultiWalletDatabaseScheme.ProfilePerWallet,
+    }),
+    tenants: new TenantsModule(),
+  },
+})
+```
+
+**Advantages:**
+- Single database connection
+- Lower resource usage
+- Easier backups and migrations
+
+### Database Per Wallet
+
+```typescript
+const agent = new Agent({
+  config: { /* ... */ },
+  modules: {
+    askar: new AskarModule({
+      ariesAskar,
+      multiWalletDatabaseScheme: AskarMultiWalletDatabaseScheme.DatabasePerWallet,
+    }),
+    tenants: new TenantsModule(),
+  },
+})
+```
+
+**Advantages:**
+- Complete tenant isolation
+- Independent database scaling
+- Per-tenant encryption keys
+
+## Advanced Configuration
+
+### Custom Storage Path
+
+```typescript
+import { homedir } from 'os'
+import { join } from 'path'
+
+const agent = new Agent({
+  config: {
+    walletConfig: {
+      id: 'my-wallet',
+      key: 'my-wallet-key',
+      storage: {
+        type: 'sqlite',
+        config: {
+          path: join(homedir(), '.credo', 'wallets', 'my-wallet.db'),
+        },
+      },
+    },
+  },
+  modules: {
+    askar: new AskarModule({ ariesAskar }),
+  },
+})
+```
+
+### Using Only KMS or Storage
+
+```typescript
+// Only use Askar for key management, not storage
+const agent = new Agent({
+  config: { /* ... */ },
+  modules: {
+    askar: new AskarModule({
+      ariesAskar,
+      enableKms: true,
+      enableStorage: false,
+    }),
+    drizzleStorage: new DrizzleStorageModule(/* ... */),
+  },
+})
+```
+
+## Migration
+
+### Migrating from Indy SDK
+
+If migrating from `indy-sdk` wallets:
+
+```typescript
+import { IndySdkToAskarMigrationUpdater } from '@credo-ts/askar'
+
+// During agent initialization
+const updateAssistant = await agent.getUpdateAssistant()
+
+await updateAssistant.update({
+  updateStrategies: {
+    '0.3.1-0.4': new IndySdkToAskarMigrationUpdater(),
+  },
+})
+```
+
+## Wallet Operations
+
+### Export Wallet
+
+```typescript
+import { exportAskarWallet } from '@credo-ts/askar'
+
+// Export wallet to file
+await exportAskarWallet({
+  exportConfig: {
+    key: 'export-key',
+    path: '/path/to/export.wallet',
+  },
+  agent,
+})
+```
+
+### Import Wallet
+
+```typescript
+import { importAskarWallet } from '@credo-ts/askar'
+
+await importAskarWallet({
+  importConfig: {
+    key: 'export-key',
+    path: '/path/to/export.wallet',
+  },
+  agent,
+})
+```
+
+## Performance Optimization
+
+### Connection Pooling (PostgreSQL)
+
+```typescript
+const agent = new Agent({
+  config: {
+    walletConfig: {
+      id: 'my-wallet',
+      key: 'my-wallet-key',
+      storage: {
+        type: 'postgres',
+        config: {
+          url: 'postgres://user:password@localhost:5432/database',
+          // Connection pool settings
+          maxConnections: 20,
+          minConnections: 5,
+        },
+      },
+    },
+  },
+  modules: {
+    askar: new AskarModule({ ariesAskar }),
+  },
+})
+```
+
+## Security Considerations
+
+### Wallet Key Strength
+
+Use strong wallet keys:
+
+```typescript
+import { randomBytes } from 'crypto'
+
+// Generate secure random key
+const walletKey = randomBytes(32).toString('base64')
+
+const agent = new Agent({
+  config: {
+    walletConfig: {
+      id: 'my-wallet',
+      key: walletKey,
+    },
+  },
+  modules: {
+    askar: new AskarModule({ ariesAskar }),
+  },
+})
+```
+
+### Key Derivation
+
+Askar uses Argon2 for key derivation from wallet passwords:
+
+```typescript
+// Wallet key is automatically derived using Argon2
+// No additional configuration needed
+```
+
+## Platform Support
+
+### Node.js
+
+Fully supported with native bindings:
+
+```typescript
+import { ariesAskar } from '@hyperledger/aries-askar-nodejs'
+```
+
+### React Native
+
+Supported via React Native bindings:
+
+```typescript
+import { ariesAskar } from '@hyperledger/aries-askar-react-native'
+```
+
+### Browser
+
+Limited support via WASM (coming soon).
+
+## API Reference
+
+Askar implements standard Credo interfaces:
+
+- `StorageService` - Record storage operations
+- `KeyManagementService` - Cryptographic operations
+
+Access via standard agent APIs:
+
+- `agent.wallet.*` - Wallet operations
+- Storage is transparent via repositories
+
+## Troubleshooting
+
+### SQLite Lock Errors
+
+If encountering database lock errors:
+
+```typescript
+// Ensure proper session cleanup
+const tenantAgent = await agent.modules.tenants.getTenantAgent({ tenantId })
+try {
+  // Operations
+} finally {
+  await tenantAgent.endSession() // Critical!
+}
+```
+
+### PostgreSQL Connection Issues
+
+Verify connection string and permissions:
+
+```bash
+psql postgres://user:password@localhost:5432/database
+```
+
+## Source Code
+
+View the source code at:
+- [packages/askar](https://github.com/openwallet-foundation/credo-ts/tree/main/packages/askar)
+- [Aries Askar](https://github.com/hyperledger/aries-askar)
+
+## Related Documentation
+
+- [Tenants Module](/modules/tenants)
+- [Agent Configuration](/guides/agent-config)
+- [Installation](/installation)

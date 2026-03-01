@@ -1,0 +1,565 @@
+---
+title: Platform Setup
+description: Configure Credo for Node.js, React Native, and other JavaScript environments
+---
+
+Credo is platform-agnostic and can run in Node.js, React Native, and browser environments. Each platform requires specific dependencies and configuration.
+
+## Platform Dependencies
+
+Credo requires platform-specific implementations for:
+- **File System** - Storage operations
+- **Fetch API** - HTTP requests
+- **WebSocket** - Real-time communication
+- **Event Emitter** - Event handling
+
+## Node.js Setup
+
+### Installation
+
+```bash
+npm install @credo-ts/core @credo-ts/node @credo-ts/askar @openwallet-foundation/askar-nodejs
+```
+
+### Basic Configuration
+
+```typescript
+import { Agent } from '@credo-ts/core'
+import { agentDependencies } from '@credo-ts/node'
+import { AskarModule } from '@credo-ts/askar'
+import { askar } from '@openwallet-foundation/askar-nodejs'
+
+const agent = new Agent({
+  config: {},
+  dependencies: agentDependencies,
+  modules: {
+    askar: new AskarModule({
+      askar,
+      store: {
+        id: 'my-agent',
+        key: 'my-secure-key',
+      },
+    }),
+  },
+})
+
+await agent.initialize()
+```
+
+### Node.js Dependencies Breakdown
+
+The `agentDependencies` from `@credo-ts/node` provides:
+
+```typescript
+import { EventEmitter } from 'events'
+import { WebSocket } from 'ws'
+import { NodeFileSystem } from '@credo-ts/node'
+
+const agentDependencies = {
+  FileSystem: NodeFileSystem,
+  fetch: global.fetch,
+  EventEmitterClass: EventEmitter,
+  WebSocketClass: WebSocket,
+}
+```
+
+### Node.js Transports
+
+Node.js supports HTTP and WebSocket transports:
+
+```typescript
+import { DidCommModule } from '@credo-ts/didcomm'
+import {
+  DidCommHttpInboundTransport,
+  DidCommWsInboundTransport,
+} from '@credo-ts/node'
+import {
+  DidCommHttpOutboundTransport,
+  DidCommWsOutboundTransport,
+} from '@credo-ts/didcomm'
+
+const agent = new Agent({
+  config: {},
+  dependencies: agentDependencies,
+  modules: {
+    didcomm: new DidCommModule({
+      transports: {
+        inbound: [
+          new DidCommHttpInboundTransport({ port: 3000 }),
+          new DidCommWsInboundTransport({ port: 3001 }),
+        ],
+        outbound: [
+          new DidCommHttpOutboundTransport(),
+          new DidCommWsOutboundTransport(),
+        ],
+      },
+    }),
+  },
+})
+```
+
+### Node.js Key Management
+
+Optional hardware-backed key storage:
+
+```typescript
+import {
+  NodeKeyManagementService,
+  NodeInMemoryKeyManagementStorage,
+} from '@credo-ts/node'
+import { Kms } from '@credo-ts/core'
+
+const agent = new Agent({
+  config: {},
+  dependencies: agentDependencies,
+  modules: {
+    kms: new Kms.KeyManagementModule({
+      backends: [
+        new NodeKeyManagementService(
+          new NodeInMemoryKeyManagementStorage()
+        ),
+      ],
+    }),
+  },
+})
+```
+
+## React Native Setup
+
+### Installation
+
+```bash
+npm install @credo-ts/core @credo-ts/react-native @credo-ts/askar @openwallet-foundation/askar-react-native
+npm install react-native-get-random-values
+```
+
+### Additional Dependencies
+
+React Native requires polyfills:
+
+```bash
+npm install react-native-fs react-native-get-random-values
+```
+
+### Basic Configuration
+
+```typescript
+import 'react-native-get-random-values' // Must be first import
+import { Agent } from '@credo-ts/core'
+import { agentDependencies } from '@credo-ts/react-native'
+import { AskarModule } from '@credo-ts/askar'
+import { askar } from '@openwallet-foundation/askar-react-native'
+
+const agent = new Agent({
+  config: {},
+  dependencies: agentDependencies,
+  modules: {
+    askar: new AskarModule({
+      askar,
+      store: {
+        id: 'my-mobile-agent',
+        key: 'secure-mobile-key',
+      },
+    }),
+  },
+})
+
+await agent.initialize()
+```
+
+### React Native Dependencies Breakdown
+
+```typescript
+import { EventEmitter } from 'events'
+import { ReactNativeFileSystem } from '@credo-ts/react-native'
+
+const agentDependencies = {
+  FileSystem: ReactNativeFileSystem,
+  fetch: global.fetch,
+  EventEmitterClass: EventEmitter,
+  WebSocketClass: global.WebSocket,
+}
+```
+
+### React Native Transports
+
+Mobile agents typically act as clients (no inbound transports):
+
+```typescript
+import { DidCommModule, DidCommHttpOutboundTransport } from '@credo-ts/didcomm'
+
+const agent = new Agent({
+  config: {},
+  dependencies: agentDependencies,
+  modules: {
+    didcomm: new DidCommModule({
+      transports: {
+        outbound: [new DidCommHttpOutboundTransport()],
+      },
+    }),
+  },
+})
+```
+
+### Secure Key Management (React Native)
+
+Use the device's secure enclave:
+
+```typescript
+import { SecureEnvironmentKeyManagementService } from '@credo-ts/react-native'
+import { Kms } from '@credo-ts/core'
+
+const agent = new Agent({
+  config: {},
+  dependencies: agentDependencies,
+  modules: {
+    kms: new Kms.KeyManagementModule({
+      backends: [
+        new SecureEnvironmentKeyManagementService(),
+      ],
+    }),
+  },
+})
+```
+
+This uses iOS Keychain and Android Keystore for secure key storage.
+
+### Important React Native Notes
+
+<Warning>
+**Import Order Matters**: Always import `react-native-get-random-values` first:
+
+```typescript
+import 'react-native-get-random-values' // MUST be first
+import { Agent } from '@credo-ts/core'
+// ... other imports
+```
+</Warning>
+
+<Note>
+**Metro Configuration**: You may need to configure Metro bundler for certain polyfills. Check the React Native documentation for details.
+</Note>
+
+## Platform Comparison
+
+<Tabs>
+  <Tab title="Node.js">
+    **Best for:**
+    - Server-side agents
+    - Mediators and cloud agents
+    - Enterprise backends
+    - Issuer/verifier services
+
+    **Features:**
+    - Full DIDComm support (inbound + outbound)
+    - HTTP and WebSocket transports
+    - File system storage
+    - Hardware key storage support
+    - Production-ready performance
+
+    **Storage:**
+    ```typescript
+    askar: new AskarModule({
+      askar,
+      store: {
+        id: 'agent-storage',
+        key: 'secure-key',
+        path: '/var/lib/agent/storage', // Optional path
+      },
+    })
+    ```
+  </Tab>
+  <Tab title="React Native">
+    **Best for:**
+    - Mobile wallets
+    - Edge agents
+    - Consumer applications
+    - Holder apps
+
+    **Features:**
+    - Outbound DIDComm only (client mode)
+    - HTTP transport (WebSocket varies by platform)
+    - Secure enclave integration
+    - Biometric authentication ready
+    - Optimized for mobile performance
+
+    **Storage:**
+    ```typescript
+    askar: new AskarModule({
+      askar,
+      store: {
+        id: 'wallet',
+        key: 'user-secure-key',
+        // Automatically uses app's private storage
+      },
+    })
+    ```
+  </Tab>
+</Tabs>
+
+## File System Differences
+
+### Node.js File System
+
+```typescript
+import { NodeFileSystem } from '@credo-ts/node'
+
+const fileSystem = new NodeFileSystem()
+
+// Full file system access
+await fileSystem.write('/path/to/file.txt', 'content')
+const content = await fileSystem.read('/path/to/file.txt')
+```
+
+### React Native File System
+
+```typescript
+import { ReactNativeFileSystem } from '@credo-ts/react-native'
+
+const fileSystem = new ReactNativeFileSystem()
+
+// Scoped to app's private directory
+await fileSystem.write('file.txt', 'content')
+const content = await fileSystem.read('file.txt')
+```
+
+## Storage Paths
+
+<Tabs>
+  <Tab title="Node.js">
+    ```typescript
+    // Specify custom storage path
+    new AskarModule({
+      askar,
+      store: {
+        id: 'production-agent',
+        key: process.env.STORAGE_KEY,
+        path: '/var/lib/credo/storage',
+      },
+    })
+
+    // Default: current directory
+    ```
+  </Tab>
+  <Tab title="React Native">
+    ```typescript
+    // Storage is automatically scoped to app
+    new AskarModule({
+      askar,
+      store: {
+        id: 'wallet',
+        key: secureStorageKey,
+        // Path handled by React Native FS
+      },
+    })
+
+    // iOS: App's Documents directory
+    // Android: App's internal storage
+    ```
+  </Tab>
+</Tabs>
+
+## Network Configuration
+
+### Node.js (Server)
+
+```typescript
+const agent = new Agent({
+  config: {
+    allowInsecureHttpUrls: false, // Production: use HTTPS
+  },
+  dependencies: agentDependencies,
+  modules: {
+    didcomm: new DidCommModule({
+      endpoints: [
+        'https://agent.example.com',
+        'wss://agent.example.com/ws',
+      ],
+    }),
+  },
+})
+```
+
+### React Native (Client)
+
+```typescript
+const agent = new Agent({
+  config: {
+    allowInsecureHttpUrls: __DEV__, // Only in development
+  },
+  dependencies: agentDependencies,
+  modules: {
+    didcomm: new DidCommModule({
+      // No endpoints - client only
+      transports: {
+        outbound: [new DidCommHttpOutboundTransport()],
+      },
+    }),
+  },
+})
+```
+
+## Complete Examples
+
+<Tabs>
+  <Tab title="Node.js Server">
+    ```typescript
+    import { Agent, ConsoleLogger, LogLevel } from '@credo-ts/core'
+    import { agentDependencies, DidCommHttpInboundTransport } from '@credo-ts/node'
+    import { AskarModule } from '@credo-ts/askar'
+    import { DidCommModule, DidCommHttpOutboundTransport } from '@credo-ts/didcomm'
+    import { askar } from '@openwallet-foundation/askar-nodejs'
+
+    const agent = new Agent({
+      config: {
+        logger: new ConsoleLogger(LogLevel.info),
+        allowInsecureHttpUrls: false,
+      },
+      dependencies: agentDependencies,
+      modules: {
+        askar: new AskarModule({
+          askar,
+          store: {
+            id: 'server-agent',
+            key: process.env.STORAGE_KEY!,
+            path: '/var/lib/agent/storage',
+          },
+        }),
+        didcomm: new DidCommModule({
+          endpoints: ['https://agent.example.com'],
+          transports: {
+            inbound: [new DidCommHttpInboundTransport({ port: 3000 })],
+            outbound: [new DidCommHttpOutboundTransport()],
+          },
+        }),
+      },
+    })
+
+    await agent.initialize()
+    console.log('Server agent ready')
+    ```
+  </Tab>
+  <Tab title="React Native Mobile">
+    ```typescript
+    import 'react-native-get-random-values'
+    import { Agent, ConsoleLogger, LogLevel } from '@credo-ts/core'
+    import { agentDependencies } from '@credo-ts/react-native'
+    import { AskarModule } from '@credo-ts/askar'
+    import { DidCommModule, DidCommHttpOutboundTransport } from '@credo-ts/didcomm'
+    import { askar } from '@openwallet-foundation/askar-react-native'
+
+    const agent = new Agent({
+      config: {
+        logger: new ConsoleLogger(LogLevel.warn),
+        allowInsecureHttpUrls: __DEV__,
+      },
+      dependencies: agentDependencies,
+      modules: {
+        askar: new AskarModule({
+          askar,
+          store: {
+            id: 'mobile-wallet',
+            key: await getSecureStorageKey(), // From secure storage
+          },
+        }),
+        didcomm: new DidCommModule({
+          transports: {
+            outbound: [new DidCommHttpOutboundTransport()],
+          },
+        }),
+      },
+    })
+
+    await agent.initialize()
+    console.log('Mobile wallet ready')
+    ```
+  </Tab>
+</Tabs>
+
+## Platform-Specific Features
+
+### Node.js Only
+
+- **Inbound transports** - Accept incoming connections
+- **File system paths** - Full control over storage location
+- **Process signals** - Handle SIGTERM/SIGINT for graceful shutdown
+- **Environment variables** - Easy configuration management
+
+### React Native Only
+
+- **Secure enclave** - Hardware-backed key storage
+- **Biometric auth** - Integrate with device biometrics
+- **App lifecycle** - Handle background/foreground transitions
+- **Deep linking** - Handle credential offers via URLs
+
+## Performance Considerations
+
+<AccordionGroup>
+  <Accordion title="Node.js">
+    - Use connection pooling for databases
+    - Enable clustering for multiple CPU cores
+    - Configure appropriate timeout values
+    - Monitor memory usage for long-running processes
+  </Accordion>
+  <Accordion title="React Native">
+    - Minimize bundle size (use Hermes engine)
+    - Offload crypto operations to native modules
+    - Cache frequently accessed data
+    - Handle app suspension gracefully
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+### Node.js Issues
+
+**Port already in use:**
+```typescript
+new DidCommHttpInboundTransport({ port: 3000 })
+// Error: EADDRINUSE
+
+// Solution: Use a different port or kill the process
+```
+
+**File permissions:**
+```typescript
+store: { path: '/var/lib/agent' }
+// Error: EACCES
+
+// Solution: Ensure write permissions or use different path
+```
+
+### React Native Issues
+
+**Random number generation:**
+```typescript
+// Error: crypto.getRandomValues not found
+
+// Solution: Import polyfill first
+import 'react-native-get-random-values'
+```
+
+**Metro bundler:**
+```typescript
+// Error: Unable to resolve module
+
+// Solution: Clear cache
+npx react-native start --reset-cache
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Agent Configuration" icon="gear" href="./agent-config">
+    Configure your agent for your platform
+  </Card>
+  <Card title="DIDComm Setup" icon="comments" href="./didcomm">
+    Set up messaging for your platform
+  </Card>
+  <Card title="Multi-Tenancy" icon="users" href="./multi-tenancy">
+    Server-side multi-tenant setup
+  </Card>
+  <Card title="OpenID4VC" icon="id-card" href="./openid4vc">
+    Mobile wallet credential flows
+  </Card>
+</CardGroup>

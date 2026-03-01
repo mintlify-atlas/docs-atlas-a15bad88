@@ -1,0 +1,569 @@
+---
+title: AnonCreds
+description: Enable privacy-preserving verifiable credentials with AnonCreds (Anonymous Credentials)
+---
+
+AnonCreds is a privacy-preserving verifiable credential system that supports zero-knowledge proofs, selective disclosure, and advanced cryptography for identity verification.
+
+## Overview
+
+AnonCreds provides:
+- **Zero-knowledge proofs** - Prove attributes without revealing them
+- **Selective disclosure** - Share only required attributes
+- **Predicate proofs** - Prove conditions (e.g., age > 18) without revealing exact values
+- **Revocation** - Support for credential revocation
+- **Multi-ledger support** - Works with Indy, Cheqd, Hedera, and more
+
+## Installation
+
+```bash
+npm install @credo-ts/anoncreds @hyperledger/anoncreds-nodejs
+```
+
+For specific registries:
+
+```bash
+# Hyperledger Indy
+npm install @credo-ts/indy-vdr @hyperledger/indy-vdr-nodejs
+
+# Cheqd
+npm install @credo-ts/cheqd
+
+# Hedera
+npm install @credo-ts/hedera
+```
+
+## Basic Setup
+
+```typescript
+import { Agent } from '@credo-ts/core'
+import { AnonCredsModule } from '@credo-ts/anoncreds'
+import { anoncreds } from '@hyperledger/anoncreds-nodejs'
+import { IndyVdrAnonCredsRegistry, IndyVdrModule } from '@credo-ts/indy-vdr'
+import { indyVdr } from '@hyperledger/indy-vdr-nodejs'
+import { agentDependencies } from '@credo-ts/node'
+
+const agent = new Agent({
+  config: {},
+  dependencies: agentDependencies,
+  modules: {
+    anoncreds: new AnonCredsModule({
+      registries: [new IndyVdrAnonCredsRegistry()],
+      anoncreds,
+    }),
+    indyVdr: new IndyVdrModule({
+      indyVdr,
+      networks: [
+        {
+          genesisTransactions: '<genesis-file-content>',
+          indyNamespace: 'bcovrin:test',
+          isProduction: false,
+          connectOnStartup: true,
+        },
+      ],
+    }),
+  },
+})
+
+await agent.initialize()
+```
+
+## Multi-Registry Setup
+
+Credo supports multiple AnonCreds registries simultaneously:
+
+```typescript
+import { AnonCredsModule } from '@credo-ts/anoncreds'
+import { IndyVdrAnonCredsRegistry } from '@credo-ts/indy-vdr'
+import { CheqdAnonCredsRegistry, CheqdModule } from '@credo-ts/cheqd'
+import { HederaAnonCredsRegistry, HederaModule } from '@credo-ts/hedera'
+
+const agent = new Agent({
+  config: {},
+  dependencies: agentDependencies,
+  modules: {
+    anoncreds: new AnonCredsModule({
+      registries: [
+        new IndyVdrAnonCredsRegistry(),
+        new CheqdAnonCredsRegistry(),
+        new HederaAnonCredsRegistry(),
+      ],
+      anoncreds,
+    }),
+    indyVdr: new IndyVdrModule({ /* config */ }),
+    cheqd: new CheqdModule({ /* config */ }),
+    hedera: new HederaModule({ /* config */ }),
+  },
+})
+```
+
+## Creating Schemas
+
+<Steps>
+
+### Import or Create a DID
+
+You need a DID to act as the issuer:
+
+```typescript
+import { TypedArrayEncoder } from '@credo-ts/core'
+import { transformPrivateKeyToPrivateJwk } from '@credo-ts/askar'
+
+const { privateJwk } = transformPrivateKeyToPrivateJwk({
+  type: { crv: 'Ed25519', kty: 'OKP' },
+  privateKey: TypedArrayEncoder.fromString('my-secure-seed-32-characters!!'),
+})
+
+const { keyId } = await agent.kms.importKey({ privateJwk })
+
+await agent.dids.import({
+  did: 'did:indy:bcovrin:test:AHJzHqBc9tvv3E9Z2dzyPN',
+  overwrite: true,
+  keys: [{ didDocumentRelativeKeyId: '#verkey', kmsKeyId: keyId }],
+})
+
+const issuerId = 'did:indy:bcovrin:test:AHJzHqBc9tvv3E9Z2dzyPN'
+```
+
+### Register a Schema
+
+```typescript
+import type { IndyVdrRegisterSchemaOptions } from '@credo-ts/indy-vdr'
+
+const { schemaState } = await agent.modules.anoncreds.registerSchema<IndyVdrRegisterSchemaOptions>({
+  schema: {
+    name: 'UniversityDegree',
+    version: '1.0.0',
+    attrNames: ['name', 'degree', 'graduation_date'],
+    issuerId,
+  },
+  options: {
+    endorserMode: 'internal',
+    endorserDid: issuerId,
+  },
+})
+
+if (schemaState.state === 'finished') {
+  console.log('Schema ID:', schemaState.schemaId)
+} else {
+  console.error('Schema registration failed:', schemaState.reason)
+}
+```
+
+</Steps>
+
+## Creating Credential Definitions
+
+After registering a schema, create a credential definition:
+
+```typescript
+import type { IndyVdrRegisterCredentialDefinitionOptions } from '@credo-ts/indy-vdr'
+
+const { credentialDefinitionState } = 
+  await agent.modules.anoncreds.registerCredentialDefinition<IndyVdrRegisterCredentialDefinitionOptions>({
+    credentialDefinition: {
+      schemaId: schemaState.schemaId,
+      issuerId,
+      tag: 'latest',
+    },
+    options: {
+      supportRevocation: false,
+      endorserMode: 'internal',
+      endorserDid: issuerId,
+    },
+  })
+
+if (credentialDefinitionState.state === 'finished') {
+  console.log('Credential Definition ID:', credentialDefinitionState.credentialDefinitionId)
+}
+```
+
+## Issuing Credentials with DIDComm
+
+<Tabs>
+  <Tab title="V2 Protocol">
+    ```typescript
+    import {
+      DidCommModule,
+      DidCommCredentialV2Protocol,
+    } from '@credo-ts/didcomm'
+    import { AnonCredsDidCommCredentialFormatService } from '@credo-ts/anoncreds'
+
+    const agent = new Agent({
+      config: {},
+      dependencies: agentDependencies,
+      modules: {
+        anoncreds: new AnonCredsModule({
+          registries: [new IndyVdrAnonCredsRegistry()],
+          anoncreds,
+        }),
+        didcomm: new DidCommModule({
+          credentials: {
+            credentialProtocols: [
+              new DidCommCredentialV2Protocol({
+                credentialFormats: [
+                  new AnonCredsDidCommCredentialFormatService(),
+                ],
+              }),
+            ],
+          },
+        }),
+      },
+    })
+
+    // Offer credential
+    await agent.didcomm.credentials.offerCredential({
+      connectionId: connectionRecord.id,
+      protocolVersion: 'v2',
+      credentialFormats: {
+        anoncreds: {
+          credentialDefinitionId: credentialDefinitionState.credentialDefinitionId,
+          attributes: [
+            { name: 'name', value: 'Alice Smith' },
+            { name: 'degree', value: 'Computer Science' },
+            { name: 'graduation_date', value: '2024-05-15' },
+          ],
+        },
+      },
+    })
+    ```
+  </Tab>
+  <Tab title="V1 Protocol (Legacy)">
+    ```typescript
+    import {
+      DidCommCredentialV1Protocol,
+      LegacyIndyDidCommCredentialFormatService,
+    } from '@credo-ts/anoncreds'
+
+    new DidCommModule({
+      credentials: {
+        credentialProtocols: [
+          new DidCommCredentialV1Protocol({
+            indyCredentialFormat: new LegacyIndyDidCommCredentialFormatService(),
+          }),
+        ],
+      },
+    })
+
+    // Offer credential with V1 protocol
+    await agent.didcomm.credentials.offerCredential({
+      connectionId: connectionRecord.id,
+      protocolVersion: 'v1',
+      credentialFormats: {
+        indy: {
+          credentialDefinitionId: credentialDefinitionState.credentialDefinitionId,
+          attributes: [
+            { name: 'name', value: 'Alice Smith' },
+            { name: 'degree', value: 'Computer Science' },
+            { name: 'graduation_date', value: '2024-05-15' },
+          ],
+        },
+      },
+    })
+    ```
+  </Tab>
+</Tabs>
+
+## Accepting Credentials (Holder)
+
+### Create Link Secret
+
+Before accepting credentials, create a link secret (once per wallet):
+
+```typescript
+await agent.modules.anoncreds.createLinkSecret()
+```
+
+### Accept Credential Offer
+
+```typescript
+await agent.didcomm.credentials.acceptOffer({
+  credentialExchangeRecordId: credentialRecord.id,
+})
+```
+
+## Requesting Proofs
+
+Request proof of credentials with various constraints:
+
+### Basic Proof Request
+
+```typescript
+await agent.didcomm.proofs.requestProof({
+  connectionId: connectionRecord.id,
+  protocolVersion: 'v2',
+  proofFormats: {
+    anoncreds: {
+      name: 'degree-verification',
+      version: '1.0',
+      requested_attributes: {
+        name: {
+          name: 'name',
+          restrictions: [
+            { cred_def_id: credentialDefinitionId },
+          ],
+        },
+        degree: {
+          name: 'degree',
+          restrictions: [
+            { cred_def_id: credentialDefinitionId },
+          ],
+        },
+      },
+    },
+  },
+})
+```
+
+### Proof with Predicates
+
+Prove conditions without revealing exact values:
+
+```typescript
+await agent.didcomm.proofs.requestProof({
+  connectionId: connectionRecord.id,
+  protocolVersion: 'v2',
+  proofFormats: {
+    anoncreds: {
+      name: 'age-verification',
+      version: '1.0',
+      requested_predicates: {
+        age_over_18: {
+          name: 'age',
+          p_type: '>=',
+          p_value: 18,
+          restrictions: [
+            { cred_def_id: credentialDefinitionId },
+          ],
+        },
+      },
+    },
+  },
+})
+```
+
+**Available predicate types:**
+- `>=` - Greater than or equal
+- `>` - Greater than
+- `<=` - Less than or equal
+- `<` - Less than
+
+## Presenting Proofs (Holder)
+
+### Select Credentials for Proof
+
+```typescript
+const requestedCredentials = await agent.didcomm.proofs.selectCredentialsForRequest({
+  proofExchangeRecordId: proofRecord.id,
+})
+```
+
+### Accept Proof Request
+
+```typescript
+await agent.didcomm.proofs.acceptRequest({
+  proofExchangeRecordId: proofRecord.id,
+  proofFormats: requestedCredentials.proofFormats,
+})
+```
+
+## Revocation Support
+
+Enable credential revocation:
+
+### Create Revocation Registry
+
+```typescript
+const { credentialDefinitionState } = 
+  await agent.modules.anoncreds.registerCredentialDefinition({
+    credentialDefinition: {
+      schemaId: schemaState.schemaId,
+      issuerId,
+      tag: 'revocable',
+    },
+    options: {
+      supportRevocation: true, // Enable revocation
+      endorserMode: 'internal',
+      endorserDid: issuerId,
+    },
+  })
+```
+
+### Revoke a Credential
+
+```typescript
+await agent.modules.anoncreds.revokeCredential({
+  credentialRevocationId: '1',
+  credentialDefinitionId,
+})
+```
+
+## Registry-Specific Configuration
+
+<Tabs>
+  <Tab title="Hyperledger Indy">
+    ```typescript
+    import { IndyVdrModule, IndyVdrAnonCredsRegistry } from '@credo-ts/indy-vdr'
+    import { indyVdr } from '@hyperledger/indy-vdr-nodejs'
+
+    const agent = new Agent({
+      config: {},
+      dependencies: agentDependencies,
+      modules: {
+        anoncreds: new AnonCredsModule({
+          registries: [new IndyVdrAnonCredsRegistry()],
+          anoncreds,
+        }),
+        indyVdr: new IndyVdrModule({
+          indyVdr,
+          networks: [
+            {
+              genesisTransactions: bcovrinGenesisFile,
+              indyNamespace: 'bcovrin:test',
+              isProduction: false,
+              connectOnStartup: true,
+            },
+          ],
+        }),
+      },
+    })
+    ```
+  </Tab>
+  <Tab title="Cheqd">
+    ```typescript
+    import { CheqdModule, CheqdAnonCredsRegistry } from '@credo-ts/cheqd'
+
+    const agent = new Agent({
+      config: {},
+      dependencies: agentDependencies,
+      modules: {
+        anoncreds: new AnonCredsModule({
+          registries: [new CheqdAnonCredsRegistry()],
+          anoncreds,
+        }),
+        cheqd: new CheqdModule({
+          networks: [
+            {
+              network: 'testnet',
+              cosmosPayerSeed: 'your-cosmos-payer-seed-phrase',
+            },
+          ],
+        }),
+      },
+    })
+    ```
+  </Tab>
+  <Tab title="Hedera">
+    ```typescript
+    import { HederaModule, HederaAnonCredsRegistry } from '@credo-ts/hedera'
+
+    const agent = new Agent({
+      config: {},
+      dependencies: agentDependencies,
+      modules: {
+        anoncreds: new AnonCredsModule({
+          registries: [new HederaAnonCredsRegistry()],
+          anoncreds,
+        }),
+        hedera: new HederaModule({
+          networks: [
+            {
+              network: 'testnet',
+              operatorId: '0.0.12345',
+              operatorKey: 'your-operator-private-key',
+            },
+          ],
+        }),
+      },
+    })
+    ```
+  </Tab>
+</Tabs>
+
+## Complete Example
+
+Here's a complete issuer setup from the Credo demo:
+
+```typescript
+import { Agent } from '@credo-ts/core'
+import { AnonCredsModule } from '@credo-ts/anoncreds'
+import {
+  DidCommModule,
+  DidCommCredentialV2Protocol,
+  DidCommProofV2Protocol,
+  DidCommAutoAcceptCredential,
+  DidCommAutoAcceptProof,
+} from '@credo-ts/didcomm'
+import {
+  AnonCredsDidCommCredentialFormatService,
+  AnonCredsDidCommProofFormatService,
+} from '@credo-ts/anoncreds'
+import { IndyVdrModule, IndyVdrAnonCredsRegistry } from '@credo-ts/indy-vdr'
+import { agentDependencies } from '@credo-ts/node'
+import { anoncreds } from '@hyperledger/anoncreds-nodejs'
+import { indyVdr } from '@hyperledger/indy-vdr-nodejs'
+
+const agent = new Agent({
+  config: {},
+  dependencies: agentDependencies,
+  modules: {
+    anoncreds: new AnonCredsModule({
+      registries: [new IndyVdrAnonCredsRegistry()],
+      anoncreds,
+    }),
+    indyVdr: new IndyVdrModule({
+      indyVdr,
+      networks: [
+        {
+          genesisTransactions: bcovrinGenesis,
+          indyNamespace: 'bcovrin:test',
+          isProduction: false,
+          connectOnStartup: true,
+        },
+      ],
+    }),
+    didcomm: new DidCommModule({
+      endpoints: ['http://localhost:3000'],
+      credentials: {
+        autoAcceptCredentials: DidCommAutoAcceptCredential.ContentApproved,
+        credentialProtocols: [
+          new DidCommCredentialV2Protocol({
+            credentialFormats: [
+              new AnonCredsDidCommCredentialFormatService(),
+            ],
+          }),
+        ],
+      },
+      proofs: {
+        autoAcceptProofs: DidCommAutoAcceptProof.ContentApproved,
+        proofProtocols: [
+          new DidCommProofV2Protocol({
+            proofFormats: [
+              new AnonCredsDidCommProofFormatService(),
+            ],
+          }),
+        ],
+      },
+    }),
+  },
+})
+
+await agent.initialize()
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="DIDComm" icon="comments" href="./didcomm">
+    Integrate AnonCreds with DIDComm messaging
+  </Card>
+  <Card title="Multi-Tenancy" icon="users" href="./multi-tenancy">
+    Use AnonCreds in multi-tenant deployments
+  </Card>
+  <Card title="OpenID4VC" icon="id-card" href="./openid4vc">
+    Alternative credential format with OpenID4VC
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/anoncreds">
+    Full AnonCreds API documentation
+  </Card>
+</CardGroup>

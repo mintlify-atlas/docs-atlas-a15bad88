@@ -1,0 +1,237 @@
+---
+title: '@credo-ts/core'
+description: Core framework functionality required for all Credo agents
+---
+
+The `@credo-ts/core` package provides the foundational functionality for all Credo agents. This is a required dependency that includes essential services, APIs, and protocols.
+
+## Installation
+
+```bash
+npm install @credo-ts/core
+```
+
+## What's Included
+
+The core package provides:
+
+### Agent Framework
+
+- **Agent** - Main agent class and lifecycle management
+- **Module system** - Plugin architecture for extending functionality
+- **Dependency injection** - Container for managing services
+- **Event system** - Event emitter for agent events
+
+### DID Management
+
+- **DID resolver** - Resolve DIDs across multiple methods
+- **DID registrar** - Create and update DIDs
+- **Supported DID methods:**
+  - `did:key` - Cryptographic key-based DIDs
+  - `did:peer` - Peer DIDs for pairwise relationships
+  - `did:web` - Web-based DIDs
+  - Extensible via modules (did:indy, did:cheqd, etc.)
+
+### Verifiable Credentials
+
+- **W3C Verifiable Credentials** - Data Integrity and JWT formats
+- **SD-JWT VC** - Selective disclosure JWT credentials
+- **mDocs/mDL** - Mobile document credentials (ISO 18013-5)
+- **Presentation Exchange** - DIF Presentation Exchange v2
+- **DCQL** - Digital Credentials Query Language
+
+### Cryptography
+
+- **Key types:** Ed25519, X25519, P-256, P-384, P-521, RSA
+- **JWS/JWT** - JSON Web Signatures and Tokens
+- **Data Integrity** - Linked Data Proofs
+- **Key Management** - Abstract KMS interface (implemented by modules)
+
+### Storage
+
+- **Abstract storage interface** - Implemented by storage modules
+- **Record management** - Generic record storage
+- **Migrations** - Version-based storage updates
+- **Caching** - Optional caching layer
+
+## Basic Usage
+
+### Creating an Agent
+
+```typescript
+import { Agent } from '@credo-ts/core'
+import { agentDependencies } from '@credo-ts/node'
+import { AskarModule } from '@credo-ts/askar'
+import { ariesAskar } from '@hyperledger/aries-askar-nodejs'
+
+const agent = new Agent({
+  config: {
+    label: 'My Agent',
+    walletConfig: {
+      id: 'my-wallet-id',
+      key: 'my-secret-wallet-key',
+    },
+  },
+  dependencies: agentDependencies,
+  modules: {
+    askar: new AskarModule({ ariesAskar }),
+  },
+})
+
+await agent.initialize()
+```
+
+### Working with DIDs
+
+```typescript
+// Create a did:key
+const didResult = await agent.dids.create({
+  method: 'key',
+  options: {
+    keyType: 'ed25519',
+  },
+})
+
+console.log(didResult.didState.did)
+// did:key:z6MkpTHR8VNsBxYAAWHut2Geadd9jSwuBV8xRoAnwWsdvktH
+
+// Resolve a DID
+const didDocument = await agent.dids.resolve('did:key:z6Mkk...')
+```
+
+### Issuing W3C Verifiable Credentials
+
+```typescript
+import { ClaimFormat, W3cCredentialService } from '@credo-ts/core'
+
+const w3cCredentialService = agent.dependencyManager.resolve(W3cCredentialService)
+
+const signedCredential = await w3cCredentialService.signCredential(agentContext, {
+  format: ClaimFormat.JwtVc,
+  credential: {
+    '@context': ['https://www.w3.org/2018/credentials/v1'],
+    type: ['VerifiableCredential'],
+    issuer: issuerDid,
+    issuanceDate: new Date().toISOString(),
+    credentialSubject: {
+      id: holderDid,
+      name: 'Alice',
+    },
+  },
+  verificationMethod: verificationMethod.id,
+})
+```
+
+### Verifying Credentials
+
+```typescript
+const result = await w3cCredentialService.verifyCredential(agentContext, {
+  credential: signedCredential,
+})
+
+if (result.verified) {
+  console.log('Credential is valid!')
+}
+```
+
+### Using SD-JWT Credentials
+
+```typescript
+import { SdJwtVcService } from '@credo-ts/core'
+
+const sdJwtVcService = agent.dependencyManager.resolve(SdJwtVcService)
+
+// Issue SD-JWT VC
+const { compact } = await sdJwtVcService.sign(agentContext, {
+  holder: { method: 'did', didUrl: holderDid },
+  issuer: { method: 'did', didUrl: issuerDid },
+  payload: {
+    vct: 'IdentityCredential',
+    given_name: 'Alice',
+    family_name: 'Smith',
+    age: 30,
+  },
+  disclosureFrame: {
+    _sd: ['given_name', 'family_name', 'age'],
+  },
+})
+
+// Present with selective disclosure
+const presentation = await sdJwtVcService.present(agentContext, {
+  compactSdJwtVc: compact,
+  presentationFrame: {
+    given_name: true,
+    age: true,
+  },
+})
+```
+
+## Agent Configuration
+
+### Config Options
+
+```typescript
+import type { InitConfig } from '@credo-ts/core'
+
+const config: InitConfig = {
+  label: 'Agent Label',
+  walletConfig: {
+    id: 'wallet-id',
+    key: 'wallet-key',
+  },
+  
+  // Optional configurations
+  logger: customLogger,
+  endpoints: ['https://example.com'],
+  autoUpdateStorageOnStartup: true,
+  allowInsecureHttpUrls: false,
+  connectionImageUrl: 'https://example.com/logo.png',
+}
+```
+
+## Events
+
+Subscribe to agent events:
+
+```typescript
+import { CredentialEventTypes, CredentialState } from '@credo-ts/core'
+
+agent.events.on(CredentialEventTypes.CredentialStateChanged, (event) => {
+  if (event.payload.credentialRecord.state === CredentialState.Done) {
+    console.log('Credential exchange completed!')
+  }
+})
+```
+
+## API Structure
+
+Core services available:
+
+- `agent.dids` - DID operations
+- `agent.genericRecords` - Generic record storage
+- `agent.wallet` - Wallet operations
+- `agent.w3cCredentials` - W3C credential operations
+- `agent.sdJwtVc` - SD-JWT VC operations  
+- `agent.mdoc` - mDoc operations
+- `agent.x509` - X.509 certificate operations
+- `agent.cache` - Caching operations
+
+## Storage Service
+
+The core requires a storage implementation. Use one of:
+
+- `@credo-ts/askar` - Aries Askar (recommended)
+- `@credo-ts/drizzle-storage` - Drizzle ORM based storage
+- Custom implementation of `StorageService`
+
+## Source Code
+
+View the source code at:
+- [packages/core](https://github.com/openwallet-foundation/credo-ts/tree/main/packages/core)
+
+## Related Documentation
+
+- [Quickstart](/quickstart)
+- [Agent Configuration](/concepts/agent)
+- [DID Methods](/concepts/did-methods)
+- [Verifiable Credentials](/concepts/verifiable-credentials)

@@ -1,80 +1,222 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart
+description: Get a working Credo agent running in minutes
 ---
 
-## Get started in three steps
+# Get started with Credo
 
-Get your documentation site running locally and make your first customization.
+This quickstart will guide you through creating a basic Credo agent that can manage DIDs and credentials.
 
-### Step 1: Set up your local environment
+<Steps>
+  <Step title="Install core dependencies">
+    Install the core Credo package and required storage module:
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+    <CodeGroup>
+    ```bash npm
+    npm install @credo-ts/core @credo-ts/askar @openwallet-foundation/askar-nodejs
+    ```
 
-### Step 2: Deploy your changes
+    ```bash yarn
+    yarn add @credo-ts/core @credo-ts/askar @openwallet-foundation/askar-nodejs
+    ```
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    ```bash pnpm
+    pnpm add @credo-ts/core @credo-ts/askar @openwallet-foundation/askar-nodejs
+    ```
+    </CodeGroup>
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+    <Note>
+      The `@credo-ts/askar` package provides secure storage for keys and data. For Node.js, you'll also need `@openwallet-foundation/askar-nodejs`.
+    </Note>
+  </Step>
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+  <Step title="Install platform dependencies">
+    Install the platform-specific package for Node.js:
 
-### Step 3: Go live
+    <CodeGroup>
+    ```bash npm
+    npm install @credo-ts/node
+    ```
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+    ```bash yarn
+    yarn add @credo-ts/node
+    ```
 
-## Next steps
+    ```bash pnpm
+    pnpm add @credo-ts/node
+    ```
+    </CodeGroup>
+  </Step>
 
-Now that you have your docs running, explore these key features:
+  <Step title="Create and initialize your agent">
+    Create a new file `agent.ts` and add the following code:
+
+    ```typescript agent.ts
+    import { Agent, ConsoleLogger, LogLevel } from '@credo-ts/core'
+    import { AskarModule } from '@credo-ts/askar'
+    import { agentDependencies } from '@credo-ts/node'
+    import { askar } from '@openwallet-foundation/askar-nodejs'
+
+    // Initialize the agent
+    const agent = new Agent({
+      config: {
+        logger: new ConsoleLogger(LogLevel.info),
+      },
+      dependencies: agentDependencies,
+      modules: {
+        askar: new AskarModule({
+          askar,
+          store: {
+            id: 'my-agent',
+            key: 'my-secret-key-must-be-at-least-32-characters-long',
+          },
+        }),
+      },
+    })
+
+    // Initialize the agent
+    await agent.initialize()
+
+    console.log('Agent initialized!')
+
+    // Create a DID
+    const didResult = await agent.dids.create({
+      method: 'key',
+    })
+
+    console.log('Created DID:', didResult.didState.did)
+
+    // Shutdown the agent
+    await agent.shutdown()
+    ```
+
+    <Info>
+      This example creates a minimal agent with Askar storage. The agent can create DIDs, manage keys, and store data securely.
+    </Info>
+  </Step>
+
+  <Step title="Run your agent">
+    Execute your agent:
+
+    ```bash
+    npx tsx agent.ts
+    ```
+
+    You should see output similar to:
+
+    ```
+    Agent initialized!
+    Created DID: did:key:z6MkpTHR8VNsBxYAAWHut2Geadd9jSwuBV8xRoAnwWsdvktH
+    ```
+
+    <Warning>
+      The agent will create a wallet file in your current directory. Make sure to use a secure key in production and never commit it to version control.
+    </Warning>
+  </Step>
+</Steps>
+
+## What's next?
+
+Now that you have a basic agent running, explore these topics:
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="DIDComm messaging" icon="message" href="/guides/didcomm/connections">
+    Enable peer-to-peer messaging between agents
+  </Card>
+  <Card title="Issue credentials" icon="id-card" href="/guides/credentials/issue">
+    Learn how to issue verifiable credentials
+  </Card>
+  <Card title="Verify presentations" icon="shield-check" href="/guides/credentials/verify">
+    Verify credential presentations from holders
+  </Card>
+  <Card title="OpenID4VC" icon="openid" href="/guides/openid4vc/overview">
+    Use OpenID for Verifiable Credentials
+  </Card>
 </CardGroup>
 
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>
+## More examples
+
+<AccordionGroup>
+  <Accordion title="Agent with DIDComm support" icon="message">
+    To enable DIDComm messaging, add the DIDComm module:
+
+    ```typescript
+    import { DidCommModule, DidCommHttpOutboundTransport } from '@credo-ts/didcomm'
+    import { DidCommHttpInboundTransport } from '@credo-ts/node'
+
+    const agent = new Agent({
+      config: {
+        logger: new ConsoleLogger(LogLevel.info),
+      },
+      dependencies: agentDependencies,
+      modules: {
+        askar: new AskarModule({
+          askar,
+          store: { id: 'my-agent', key: 'my-secret-key' },
+        }),
+        didcomm: new DidCommModule({
+          endpoints: ['http://localhost:3000'],
+          transports: {
+            inbound: [new DidCommHttpInboundTransport({ port: 3000 })],
+            outbound: [new DidCommHttpOutboundTransport()],
+          },
+        }),
+      },
+    })
+    ```
+  </Accordion>
+
+  <Accordion title="Agent with AnonCreds support" icon="shield">
+    To work with AnonCreds credentials, add the AnonCreds module:
+
+    ```typescript
+    import { AnonCredsModule } from '@credo-ts/anoncreds'
+    import { anoncreds } from '@hyperledger/anoncreds-nodejs'
+
+    const agent = new Agent({
+      config: {
+        logger: new ConsoleLogger(LogLevel.info),
+      },
+      dependencies: agentDependencies,
+      modules: {
+        askar: new AskarModule({
+          askar,
+          store: { id: 'my-agent', key: 'my-secret-key' },
+        }),
+        anoncreds: new AnonCredsModule({
+          anoncreds,
+          registries: [],
+        }),
+      },
+    })
+    ```
+  </Accordion>
+
+  <Accordion title="Agent with OpenID4VC support" icon="openid">
+    To use OpenID for Verifiable Credentials:
+
+    ```typescript
+    import { OpenId4VcModule } from '@credo-ts/openid4vc'
+
+    const agent = new Agent({
+      config: {
+        logger: new ConsoleLogger(LogLevel.info),
+      },
+      dependencies: agentDependencies,
+      modules: {
+        askar: new AskarModule({
+          askar,
+          store: { id: 'my-agent', key: 'my-secret-key' },
+        }),
+        openId4Vc: new OpenId4VcModule(),
+      },
+    })
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Need help?
+
+<Card title="Join the community" icon="users" href="https://github.com/openwallet-foundation/credo-ts/wiki/Communication">
+  Join our Discord channel or mailing list for support
+</Card>

@@ -1,0 +1,150 @@
+{
+  "projectType": "framework",
+  "projectName": "Credo",
+  "projectDescription": "TypeScript framework for building decentralized identity and verifiable credential solutions",
+  "theme": "aspen",
+  "primaryColor": "#5B68F0",
+  "lightColor": "#8B94FF",
+  "darkColor": "#3D47B8",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/agent",
+              "concepts/modules",
+              "concepts/did-methods",
+              "concepts/verifiable-credentials",
+              "concepts/storage"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/agent-config",
+              "guides/didcomm",
+              "guides/openid4vc",
+              "guides/anoncreds",
+              "guides/multi-tenancy",
+              "guides/platform-setup"
+            ]
+          },
+          {
+            "group": "Modules",
+            "pages": [
+              "modules/overview",
+              "modules/core",
+              "modules/openid4vc",
+              "modules/anoncreds",
+              "modules/didcomm",
+              "modules/tenants",
+              "modules/askar",
+              "modules/indy-vdr",
+              "modules/cheqd",
+              "modules/hedera"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "advanced/custom-modules",
+              "advanced/storage-migration",
+              "advanced/events",
+              "advanced/dependency-injection"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Core API",
+            "pages": [
+              "api/agent",
+              "api/agent-config",
+              "api/modules-api"
+            ]
+          },
+          {
+            "group": "DID & Credentials",
+            "pages": [
+              "api/dids",
+              "api/credentials",
+              "api/presentations",
+              "api/sd-jwt-vc",
+              "api/mdoc"
+            ]
+          },
+          {
+            "group": "Protocols",
+            "pages": [
+              "api/openid4vc",
+              "api/anoncreds",
+              "api/didcomm"
+            ]
+          },
+          {
+            "group": "Storage & Cache",
+            "pages": [
+              "api/storage",
+              "api/cache"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Examples",
+        "groups": [
+          {
+            "group": "Examples",
+            "pages": [
+              "examples/issuing-credentials",
+              "examples/verifying-presentations",
+              "examples/establishing-connections",
+              "examples/multi-tenant-setup"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Platform agnostic (Node.js and React Native)",
+    "DIDComm v1 and v2 support",
+    "Multiple DID methods (did:web, did:key, did:peer, did:sov, did:indy, did:cheqd, did:hedera)",
+    "OpenID4VC support (issuance and verification)",
+    "Multiple credential formats (W3C VC, SD-JWT VC, AnonCreds)",
+    "Multi-tenant architecture",
+    "Extensible module system",
+    "Pluggable storage backends"
+  ],
+  "publicApiSurface": [
+    "Agent",
+    "AgentConfig",
+    "BaseAgent",
+    "Module system (Core, OpenId4Vc, AnonCreds, DIDComm, Tenants)",
+    "DidsApi",
+    "W3cCredentialsApi",
+    "SdJwtVcApi",
+    "MdocApi",
+    "ConnectionsApi",
+    "ProofsApi",
+    "CredentialsApi",
+    "EventEmitter",
+    "DependencyManager",
+    "StorageService",
+    "CacheModule"
+  ]
+}
